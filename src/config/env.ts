@@ -15,10 +15,12 @@ const envSchema = z.object({
   API_KEY: z.string().min(16, 'API_KEY must contain at least 16 characters'),
   CORS_ORIGIN: z.string().default('http://localhost:5001'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
-  WA_CLIENT_ID: z.string().regex(/^[\w-]+$/).default('rorojongrang'),
+  // Single-tenant only (ignored in multi-tenant mode — per-tenant from DB)
+  WA_CLIENT_ID: optionalString(z.string().regex(/^[\w-]+$/)),
+  WA_BOT_PHONE: optionalString(z.string().trim().min(7).max(30)),
+  // Global (shared by all tenants)
   WA_AUTH_PATH: z.string().default('./data/auth'),
   WA_HEADLESS: booleanString.default(true),
-  WA_BOT_PHONE: optionalString(z.string().trim().min(7).max(30)),
   PUPPETEER_EXECUTABLE_PATH: optionalString(z.string()),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
@@ -34,6 +36,7 @@ const envSchema = z.object({
   DB_USER: z.string().default('root'),
   DB_PASSWORD: z.string().default(''),
   DB_NAME: z.string().default('rorojongrang_wa'),
+  // Bot config (single-tenant fallback only — multi-tenant uses per-tenant AI config)
   BOT_ENABLED: booleanString.default(false),
   GROQ_API_KEY: optionalString(z.string().min(1)),
   GROQ_MODEL: z.string().default('llama-3.1-8b-instant'),

@@ -41,10 +41,15 @@ const bootstrapDatabase = async (): Promise<void> => {
     tenantConfigLoader = new TenantConfigLoader({ pool, logger });
 
     logger.info({ db: env.DB_NAME, host: env.DB_HOST }, 'Database connected');
-    const phone = env.WA_BOT_PHONE ? normalizePhoneNumber(env.WA_BOT_PHONE) : env.WA_CLIENT_ID;
-    const agent = await repositories.agents.ensure(env.WA_CLIENT_ID, phone);
-    agentId = agent.id;
-    logger.info({ agentId, clientId: agent.clientId, phone: agent.phone }, 'Default agent ready');
+    // Single-tenant: ensure default agent exists
+    if (env.WA_CLIENT_ID) {
+      const phone = env.WA_BOT_PHONE ? normalizePhoneNumber(env.WA_BOT_PHONE) : env.WA_CLIENT_ID;
+      const agent = await repositories.agents.ensure(env.WA_CLIENT_ID, phone);
+      agentId = agent.id;
+      logger.info({ agentId, clientId: agent.clientId, phone: agent.phone }, 'Default agent ready');
+    } else {
+      logger.info('Multi-tenant mode: skipping default agent (per-tenant from DB)');
+    }
   } catch (error) {
     logger.error({ err: error, event: 'db_bootstrap_failed' }, 'Database bootstrap failed; service will run without persistence');
     repositories = undefined;
@@ -129,8 +134,8 @@ if (tenantResolver && tenantConfigLoader) {
   }
 
   logger.info({ event: 'multi_tenant_enabled', clients: waManager.getAllStatus().length }, 'Multi-tenant mode active');
-} else if (env.BOT_ENABLED && env.GROQ_API_KEY) {
-  // Single-tenant mode
+} else if (env.BOT_ENABLED && env.GROQ_API_KEY && env.WA_CLIENT_ID) {
+  // Single-tenant mode (requires WA_CLIENT_ID)
   const service = new WhatsAppService({
     clientId: env.WA_CLIENT_ID,
     authPath: env.WA_AUTH_PATH,
@@ -148,8 +153,8 @@ if (tenantResolver && tenantConfigLoader) {
   service.replaceMessageHandler(botHandler);
   whatsapp = service;
   logger.info({ event: 'legacy_bot_enabled', model: env.GROQ_MODEL }, 'Legacy single-tenant bot enabled');
-} else {
-  // No bot, just webhook forwarding
+} else if (env.WA_CLIENT_ID) {
+  // No bot, just webhook forwarding (single-tenant)
   whatsapp = new WhatsAppService({
     clientId: env.WA_CLIENT_ID,
     authPath: env.WA_AUTH_PATH,
@@ -158,6 +163,15 @@ if (tenantResolver && tenantConfigLoader) {
     ...(env.WA_BOT_PHONE ? { expectedBotPhone: env.WA_BOT_PHONE } : {}),
     onIncomingMessage: webhookHandler,
   }, logger);
+} else {
+  // No WhatsApp configured — API-only mode
+  whatsapp = new WhatsAppService({
+    clientId: '__none__',
+    authPath: env.WA_AUTH_PATH,
+    headless: env.WA_HEADLESS,
+    onIncomingMessage: webhookHandler,
+  }, logger);
+  logger.warn('No WhatsApp configured (no WA_CLIENT_ID, no multi-tenant). API-only mode.');
 }
 
 const app = createApp(whatsapp, logger, {
