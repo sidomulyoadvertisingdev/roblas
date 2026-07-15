@@ -10,7 +10,7 @@ import { createWebhookForwarder } from './webhook/forwarder.js';
 import { WhatsAppService } from './whatsapp/service.js';
 import { normalizePhoneNumber } from './whatsapp/phone.js';
 import { createBotHandler } from './bot/handler.js';
-import { TenantResolver, TenantConfigLoader, createGenericBotHandler } from './tenant/index.js';
+import { TenantResolver, TenantConfigLoader } from './tenant/index.js';
 
 const pool = createPool({
   host: env.DB_HOST,
@@ -99,21 +99,39 @@ const whatsapp = new WhatsAppService({
   onIncomingMessage: webhookHandler,
 }, logger);
 
-// Multi-tenant bot handler
+// Multi-tenant or single-tenant bot handler
 if (tenantResolver && tenantConfigLoader) {
-  const genericBotHandler = createGenericBotHandler(whatsapp, logger, {
-    getTenant: async (fromWhatsappId) => {
+  const botHandler = createBotHandler(whatsapp, logger, {
+    groqApiKey: env.GROQ_API_KEY ?? '',
+    groqModel: env.GROQ_MODEL,
+    getWebhookConfig: () => settingsManager.getWebhookConfig(),
+    getTenantConfig: async (fromWhatsappId) => {
       const phone = fromWhatsappId.replace(/@.*$/, '');
       const resolved = await tenantResolver!.resolveByPhone(phone);
       if (!resolved) return null;
+
       const config = await tenantConfigLoader!.getConfig(resolved.tenant.id);
       const aiConfig = await tenantConfigLoader!.getAiConfig(resolved.tenant.id);
-      return { ...resolved, config, aiConfig };
+
+      if (!aiConfig.apiKey) return null;
+
+      return {
+        groqApiKey: aiConfig.apiKey,
+        groqModel: aiConfig.model || env.GROQ_MODEL,
+        webhookConfig: {
+          url: config.webhookUrl || settingsManager.getWebhookConfig().url,
+          authMode: config.webhookAuthMode,
+          secret: config.webhookSecret || settingsManager.getWebhookConfig().secret,
+          bearerToken: config.webhookBearerToken || settingsManager.getWebhookConfig().bearerToken,
+          timeoutMs: config.webhookTimeoutMs,
+          allowedSenders: settingsManager.getWebhookConfig().allowedSenders,
+          ignoreGroups: config.webhookIgnoreGroups,
+        },
+      };
     },
-    fallbackHandler: webhookHandler,
-  });
-  whatsapp.replaceMessageHandler(genericBotHandler);
-  logger.info({ event: 'multi_tenant_bot_enabled' }, 'Multi-tenant bot handler enabled');
+  }, webhookHandler);
+  whatsapp.replaceMessageHandler(botHandler);
+  logger.info({ event: 'multi_tenant_bot_enabled' }, 'Multi-tenant attendance bot enabled');
 } else if (env.BOT_ENABLED && env.GROQ_API_KEY) {
   // Fallback to legacy single-tenant bot
   const botHandler = createBotHandler(whatsapp, logger, {

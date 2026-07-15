@@ -6,20 +6,21 @@ import { formatReport, HELP_TEXT } from './prompts.js';
 import { generateAttendanceExcel, cleanupExcelFile } from './excel-export.js';
 import type { WebhookRuntimeConfig } from '../webhook/types.js';
 
+export interface TenantBotConfig {
+  groqApiKey: string;
+  groqModel: string;
+  webhookConfig: WebhookRuntimeConfig;
+}
+
 export interface BotHandlerOptions {
   groqApiKey: string;
   groqModel: string;
   getWebhookConfig: () => WebhookRuntimeConfig;
+  getTenantConfig?: (fromWhatsappId: string) => Promise<TenantBotConfig | null>;
 }
 
 // Cache last query per user for "Refresh Data" button
 const lastQueryCache = new Map<string, { dateFrom: string; dateTo: string; parsed: ParsedIntent; ts: number }>();
-
-export interface BotHandlerOptions {
-  groqApiKey: string;
-  groqModel: string;
-  getWebhookConfig: () => WebhookRuntimeConfig;
-}
 
 const isBotMessage = (body: string): boolean => {
   const lower = body.trim().toLowerCase();
@@ -99,13 +100,26 @@ export const createBotHandler = (
     try {
       const lowerBody = message.body.trim().toLowerCase();
 
+      // Resolve per-tenant config if available, fallback to static
+      let groqApiKey = options.groqApiKey;
+      let groqModel = options.groqModel;
+      let webhookConfig = options.getWebhookConfig();
+
+      if (options.getTenantConfig) {
+        const tenantConfig = await options.getTenantConfig(message.fromWhatsappId);
+        if (tenantConfig) {
+          groqApiKey = tenantConfig.groqApiKey;
+          groqModel = tenantConfig.groqModel;
+          webhookConfig = tenantConfig.webhookConfig;
+        }
+      }
+
       // Handle button clicks directly
       if (lowerBody === 'lihat menu') {
         await reply(HELP_TEXT);
         return;
       }
 
-      const webhookConfig = options.getWebhookConfig();
       if (!webhookConfig.url || !webhookConfig.bearerToken) {
         await reply('Konfigurasi webhook belum lengkap. Hubungi admin.');
         return;
@@ -135,7 +149,7 @@ export const createBotHandler = (
         return;
       }
 
-      const parsed = await parseMessage(message.body, options.groqApiKey, options.groqModel, logger);
+      const parsed = await parseMessage(message.body, groqApiKey, groqModel, logger);
       logger.info({ event: 'bot_intent_parsed', intent: parsed.intent, period: parsed.period, employeeName: parsed.employeeName }, 'Groq AI parsed intent');
 
       if (parsed.intent === 'help') {
