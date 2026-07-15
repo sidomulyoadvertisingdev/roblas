@@ -5,19 +5,7 @@ export type TemplateContext = Record<string, string | number | boolean | null | 
 export function renderTemplate(template: string, context: TemplateContext): string {
   let result = template;
 
-  // Replace simple variables: {{variable}}
-  result = result.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
-    const value = context[key];
-    return value !== undefined && value !== null ? String(value) : '';
-  });
-
-  // Replace conditional blocks: {{#if condition}}...{{/if}}
-  result = result.replace(/\{\{#if (\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, condition: string, block: string) => {
-    const value = context[condition];
-    return value ? block : '';
-  });
-
-  // Replace each blocks: {{#each items}}...{{/each}}
+  // Replace each blocks FIRST (so nested #if uses item context)
   result = result.replace(/\{\{#each (\w+)\}\}([\s\S]*?)\{\{\/each\}\}/g, (_, arrayKey: string, block: string) => {
     const items = context[arrayKey];
     if (!Array.isArray(items)) return '';
@@ -25,6 +13,12 @@ export function renderTemplate(template: string, context: TemplateContext): stri
     return items.map((item: Record<string, unknown>) => {
       let itemResult = block;
       if (typeof item === 'object' && item !== null) {
+        // Process #if blocks inside each using item context
+        itemResult = itemResult.replace(/\{\{#if (\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g, (__: string, cond: string, ifBlock: string) => {
+          const val = item[cond];
+          return val ? ifBlock : '';
+        });
+        // Replace variables using item context
         for (const [key, value] of Object.entries(item)) {
           let strValue = '';
           if (value !== null && value !== undefined) {
@@ -42,6 +36,18 @@ export function renderTemplate(template: string, context: TemplateContext): stri
       }
       return itemResult;
     }).join('');
+  });
+
+  // Replace simple variables: {{variable}}
+  result = result.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
+    const value = context[key];
+    return value !== undefined && value !== null ? String(value) : '';
+  });
+
+  // Replace conditional blocks: {{#if condition}}...{{/if}}
+  result = result.replace(/\{\{#if (\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, condition: string, block: string) => {
+    const value = context[condition];
+    return value ? block : '';
   });
 
   return result;
