@@ -9,11 +9,13 @@ import { apiKeyMiddleware } from './middleware/api-key.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { createApiRouter } from './routes/api.js';
 import { createDashboardRouter } from './routes/dashboard.js';
+import { createTenantRoutes } from './tenant/routes.js';
 import type { Environment } from './config/env.js';
 import type { Logger } from './logger.js';
 import type { Repositories } from './db/index.js';
 import type { SettingsManager } from './settings/manager.js';
 import type { WhatsAppGateway } from './whatsapp/types.js';
+import type { TenantResolver, TenantConfigLoader } from './tenant/index.js';
 
 export interface AppOptions {
   apiKey: string;
@@ -26,6 +28,8 @@ export interface AppOptions {
   repositories?: Repositories;
   agentId?: number;
   settings?: SettingsManager;
+  tenantResolver?: TenantResolver;
+  tenantConfigLoader?: TenantConfigLoader;
 }
 
 export const createApp = (whatsapp: WhatsAppGateway, logger: Logger, options: AppOptions): Express => {
@@ -90,6 +94,15 @@ export const createApp = (whatsapp: WhatsAppGateway, logger: Logger, options: Ap
     ...(options.settings ? { settings: options.settings } : {}),
     logger,
   }));
+
+  // Multi-tenant routes
+  if (options.tenantResolver && options.tenantConfigLoader) {
+    app.use('/tenant', createTenantRoutes({
+      pool: options.tenantResolver['pool'],
+      logger,
+    }));
+    logger.info({ event: 'tenant_routes_enabled' }, 'Tenant routes enabled');
+  }
 
   const publicDir = options.publicDir ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
   const staticMaxAge = options.env.NODE_ENV === 'production' ? '1h' : 0;

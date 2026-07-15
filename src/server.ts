@@ -10,6 +10,7 @@ import { createWebhookForwarder } from './webhook/forwarder.js';
 import { WhatsAppService } from './whatsapp/service.js';
 import { normalizePhoneNumber } from './whatsapp/phone.js';
 import { createBotHandler } from './bot/handler.js';
+import { TenantResolver, TenantConfigLoader, createGenericBotHandler, createTenantRoutes } from './tenant/index.js';
 
 const pool = createPool({
   host: env.DB_HOST,
@@ -22,6 +23,8 @@ const pool = createPool({
 let repositories: Repositories | undefined;
 let agentId: number | undefined;
 const settingsManager = new SettingsManager(env);
+let tenantResolver: TenantResolver | undefined;
+let tenantConfigLoader: TenantConfigLoader | undefined;
 
 const bootstrapDatabase = async (): Promise<void> => {
   try {
@@ -30,6 +33,11 @@ const bootstrapDatabase = async (): Promise<void> => {
     repositories = createRepositories(pool);
     settingsManager.attachRepository(repositories.settings);
     await settingsManager.load();
+
+    // Initialize tenant modules
+    tenantResolver = new TenantResolver({ pool, logger });
+    tenantConfigLoader = new TenantConfigLoader({ pool, logger });
+
     logger.info({ db: env.DB_NAME, host: env.DB_HOST }, 'Database connected');
     const phone = env.WA_BOT_PHONE ? normalizePhoneNumber(env.WA_BOT_PHONE) : env.WA_CLIENT_ID;
     const agent = await repositories.agents.ensure(env.WA_CLIENT_ID, phone);
@@ -91,14 +99,30 @@ const whatsapp = new WhatsAppService({
   onIncomingMessage: webhookHandler,
 }, logger);
 
-if (env.BOT_ENABLED && env.GROQ_API_KEY) {
+// Multi-tenant bot handler
+if (tenantResolver && tenantConfigLoader) {
+  const genericBotHandler = createGenericBotHandler(whatsapp, logger, {
+    getTenant: async (fromWhatsappId) => {
+      const phone = fromWhatsappId.replace(/@.*$/, '');
+      const resolved = await tenantResolver!.resolveByPhone(phone);
+      if (!resolved) return null;
+      const config = await tenantConfigLoader!.getConfig(resolved.tenant.id);
+      const aiConfig = await tenantConfigLoader!.getAiConfig(resolved.tenant.id);
+      return { ...resolved, config, aiConfig };
+    },
+    fallbackHandler: webhookHandler,
+  });
+  whatsapp.replaceMessageHandler(genericBotHandler);
+  logger.info({ event: 'multi_tenant_bot_enabled' }, 'Multi-tenant bot handler enabled');
+} else if (env.BOT_ENABLED && env.GROQ_API_KEY) {
+  // Fallback to legacy single-tenant bot
   const botHandler = createBotHandler(whatsapp, logger, {
     groqApiKey: env.GROQ_API_KEY,
     groqModel: env.GROQ_MODEL,
     getWebhookConfig: () => settingsManager.getWebhookConfig(),
   }, webhookHandler);
   whatsapp.replaceMessageHandler(botHandler);
-  logger.info({ event: 'bot_enabled', model: env.GROQ_MODEL }, 'Bot AI handler enabled');
+  logger.info({ event: 'legacy_bot_enabled', model: env.GROQ_MODEL }, 'Legacy single-tenant bot enabled');
 } else if (env.BOT_ENABLED) {
   logger.warn('BOT_ENABLED but missing GROQ_API_KEY; bot disabled');
 }
@@ -113,6 +137,8 @@ const app = createApp(whatsapp, logger, {
   settings: settingsManager,
   ...(repositories ? { repositories } : {}),
   ...(agentId !== undefined ? { agentId } : {}),
+  // Multi-tenant support
+  ...(tenantResolver && tenantConfigLoader ? { tenantResolver, tenantConfigLoader } : {}),
 });
 const server = createServer(app);
 

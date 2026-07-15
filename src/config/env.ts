@@ -37,6 +37,7 @@ const envSchema = z.object({
   BOT_ENABLED: booleanString.default(false),
   GROQ_API_KEY: optionalString(z.string().min(1)),
   GROQ_MODEL: z.string().default('llama-3.1-8b-instant'),
+  ADMIN_KEY: optionalString(z.string().min(16)),
 });
 
 const parsed = envSchema.safeParse(process.env);
