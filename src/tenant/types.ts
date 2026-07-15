@@ -3,7 +3,7 @@ export interface Tenant {
   name: string;
   slug: string;
   isActive: boolean;
-  plan: 'free' | 'pro' | 'enterprise';
+  plan: 'free' | 'pro' | 'enterprise' | undefined;
   createdAt: Date;
   updatedAt: Date;
 }

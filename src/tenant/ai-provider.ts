@@ -6,6 +6,17 @@ export interface AiMessage {
   content: string;
 }
 
+interface GroqUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+interface ChatCompletionResponse {
+  choices: Array<{ message: { content: string } }>;
+  usage?: GroqUsage;
+}
+
 export interface AiResponse {
   content: string;
   usage?: {
@@ -52,7 +63,7 @@ export class GroqProvider implements AiProvider {
       throw new Error(`Groq API error: ${response.status}`);
     }
 
-    const body = await response.json() as { choices: Array<{ message: { content: string } }>; usage?: any };
+    const body = await response.json() as ChatCompletionResponse;
     const content = body.choices?.[0]?.message?.content ?? '';
 
     return {
@@ -99,7 +110,7 @@ export class OpenAiProvider implements AiProvider {
       throw new Error(`OpenAI API error: ${response.status}`);
     }
 
-    const body = await response.json() as { choices: Array<{ message: { content: string } }>; usage?: any };
+    const body = await response.json() as ChatCompletionResponse;
     const content = body.choices?.[0]?.message?.content ?? '';
 
     return {
@@ -125,7 +136,6 @@ export class CustomProvider implements AiProvider {
   }
 
   async chat(messages: AiMessage[], options?: { temperature?: number; maxTokens?: number }): Promise<AiResponse> {
-    // Custom provider uses OpenAI-compatible API
     const response = await fetch(this.model, {
       method: 'POST',
       headers: {
@@ -145,7 +155,7 @@ export class CustomProvider implements AiProvider {
       throw new Error(`Custom API error: ${response.status}`);
     }
 
-    const body = await response.json() as { choices: Array<{ message: { content: string } }>; usage?: any };
+    const body = await response.json() as ChatCompletionResponse;
     const content = body.choices?.[0]?.message?.content ?? '';
 
     return {

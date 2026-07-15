@@ -10,7 +10,7 @@ import { createWebhookForwarder } from './webhook/forwarder.js';
 import { WhatsAppService } from './whatsapp/service.js';
 import { normalizePhoneNumber } from './whatsapp/phone.js';
 import { createBotHandler } from './bot/handler.js';
-import { TenantResolver, TenantConfigLoader, createGenericBotHandler, createTenantRoutes } from './tenant/index.js';
+import { TenantResolver, TenantConfigLoader, createGenericBotHandler } from './tenant/index.js';
 
 const pool = createPool({
   host: env.DB_HOST,

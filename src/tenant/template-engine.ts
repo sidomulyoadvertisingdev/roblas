@@ -1,40 +1,44 @@
 import type { TenantConfig } from './types.js';
 
-export interface TemplateContext {
-  [key: string]: string | number | boolean | null | undefined;
-}
+export type TemplateContext = Record<string, string | number | boolean | null | undefined>;
 
 export function renderTemplate(template: string, context: TemplateContext): string {
-  // Simple Mustache-like template engine
-  // Supports: {{variable}}, {{#each items}}...{{/each}}, {{#if condition}}...{{/if}}
-
   let result = template;
 
   // Replace simple variables: {{variable}}
-  result = result.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+  result = result.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
     const value = context[key];
     return value !== undefined && value !== null ? String(value) : '';
   });
 
   // Replace conditional blocks: {{#if condition}}...{{/if}}
-  result = result.replace(/\{\{#if (\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, condition, block) => {
+  result = result.replace(/\{\{#if (\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, condition: string, block: string) => {
     const value = context[condition];
     return value ? block : '';
   });
 
   // Replace each blocks: {{#each items}}...{{/each}}
-  result = result.replace(/\{\{#each (\w+)\}\}([\s\S]*?)\{\{\/each\}\}/g, (_, arrayKey, block) => {
+  result = result.replace(/\{\{#each (\w+)\}\}([\s\S]*?)\{\{\/each\}\}/g, (_, arrayKey: string, block: string) => {
     const items = context[arrayKey];
     if (!Array.isArray(items)) return '';
 
-    return items.map((item: any) => {
+    return items.map((item: Record<string, unknown>) => {
       let itemResult = block;
       if (typeof item === 'object' && item !== null) {
         for (const [key, value] of Object.entries(item)) {
-          itemResult = itemResult.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), String(value ?? ''));
+          let strValue = '';
+          if (value !== null && value !== undefined) {
+            if (typeof value === 'object') {
+              strValue = JSON.stringify(value);
+            } else if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+              strValue = String(value);
+            }
+          }
+          itemResult = itemResult.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), strValue);
         }
       } else {
-        itemResult = itemResult.replace(/\{\{this\}\}/g, String(item ?? ''));
+        const strValue = item !== null && item !== undefined ? String(item) : '';
+        itemResult = itemResult.replace(/\{\{this\}\}/g, strValue);
       }
       return itemResult;
     }).join('');

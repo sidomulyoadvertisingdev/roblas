@@ -3,7 +3,7 @@ import type { TenantConfig } from './types.js';
 
 export interface BackendResponse {
   success: boolean;
-  data: any;
+  data: Record<string, unknown> | null;
   error?: string;
 }
 
@@ -23,7 +23,7 @@ export class BackendClient {
 
   async fetch(path: string, options?: {
     method?: string;
-    body?: any;
+    body?: Record<string, unknown>;
     queryParams?: Record<string, string>;
   }): Promise<BackendResponse> {
     if (!this.config.webhookUrl) {
@@ -56,12 +56,12 @@ export class BackendClient {
     const timeout = setTimeout(() => controller.abort(), this.config.webhookTimeoutMs);
 
     try {
-    const response = await fetch(url.toString(), {
-      method: options?.method || 'GET',
-      headers,
-      body: options?.body ? JSON.stringify(options.body) : null,
-      signal: controller.signal,
-    });
+      const response = await fetch(url.toString(), {
+        method: options?.method || 'GET',
+        headers,
+        body: options?.body ? JSON.stringify(options.body) : null,
+        signal: controller.signal,
+      });
 
       clearTimeout(timeout);
 
@@ -71,7 +71,7 @@ export class BackendClient {
         return { success: false, data: null, error: `HTTP ${response.status}` };
       }
 
-      const data = await response.json();
+      const data = await response.json() as Record<string, unknown>;
       return { success: true, data };
     } catch (error) {
       clearTimeout(timeout);

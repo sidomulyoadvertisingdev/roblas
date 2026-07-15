@@ -1,7 +1,6 @@
 import type { Logger } from '../logger.js';
 import type { IncomingMessage, IncomingMessageHandler, WhatsAppGateway } from '../whatsapp/types.js';
-import type { TenantConfig, TenantAiConfig, ResolvedTenant } from './types.js';
-import type { AiProvider } from './ai-provider.js';
+import type { ResolvedTenant } from './types.js';
 import { createAiProvider } from './ai-provider.js';
 import { renderTemplate, buildButtonsFromConfig } from './template-engine.js';
 import { BackendClient } from './backend-client.js';
@@ -13,7 +12,7 @@ export interface GenericBotHandlerOptions {
 
 export interface ParsedIntent {
   intent: string;
-  params: Record<string, any>;
+  params: Record<string, unknown>;
 }
 
 const DEFAULT_SYSTEM_PROMPT = `Kamu adalah asisten AI. Return HANYA JSON valid.
@@ -83,7 +82,7 @@ export function createGenericBotHandler(
 
       let parsed: ParsedIntent;
       try {
-        parsed = JSON.parse(aiResponse.content);
+        parsed = JSON.parse(aiResponse.content) as ParsedIntent;
       } catch {
         parsed = { intent: 'chat', params: {} };
       }
@@ -114,7 +113,8 @@ export function createGenericBotHandler(
         if (response.success && response.data) {
           // Use response template if available
           if (aiConfig.responseTemplate) {
-            const rendered = renderTemplate(aiConfig.responseTemplate, response.data);
+            const context: Record<string, string | number | boolean | null | undefined> = response.data as Record<string, string | number | boolean | null | undefined>;
+            const rendered = renderTemplate(aiConfig.responseTemplate, context);
             await reply(rendered);
           } else if (typeof response.data === 'string') {
             await reply(response.data);

@@ -1,7 +1,7 @@
 import type { Logger } from '../logger.js';
 import type { IncomingMessage, IncomingMessageHandler, WhatsAppGateway } from '../whatsapp/types.js';
 import { parseMessage, type ParsedIntent } from './groq-client.js';
-import { fetchReport, type AttendanceReport } from './attendance-client.js';
+import { fetchReport } from './attendance-client.js';
 import { formatReport, HELP_TEXT } from './prompts.js';
 import { generateAttendanceExcel, cleanupExcelFile } from './excel-export.js';
 import type { WebhookRuntimeConfig } from '../webhook/types.js';

@@ -3,7 +3,9 @@ import type { TenantResolver } from './resolver.js';
 import type { TenantConfigLoader } from './config-loader.js';
 import type { ResolvedTenant } from './types.js';
 
+// Extend Express Request type
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       tenant?: ResolvedTenant;
@@ -63,9 +65,9 @@ export function requireTenant(req: Request, res: Response, next: NextFunction): 
 }
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
-  // Simple admin auth check — in production, use JWT or session
-  const adminKey = req.headers['x-admin-key'] as string;
-  if (!adminKey || adminKey !== process.env.ADMIN_KEY) {
+  const adminKey = req.headers['x-admin-key'];
+  const adminKeyStr = Array.isArray(adminKey) ? adminKey[0] : adminKey;
+  if (!adminKeyStr || adminKeyStr !== process.env.ADMIN_KEY) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
