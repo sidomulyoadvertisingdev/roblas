@@ -54,7 +54,7 @@ const webhookHandler = createWebhookForwarder({
           waMessageId: message.messageId,
           fromPhone: message.from,
           bodyLength: message.body?.length ?? 0,
-          msgType: message.type ?? 'unknown',
+          msgType: message.type ? String(message.type) : 'unknown',
           isGroup: message.isGroup,
           hasMedia: message.hasMedia,
           initialStatus: status,

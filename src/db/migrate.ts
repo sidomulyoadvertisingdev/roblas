@@ -27,9 +27,10 @@ export const runMigrations = async (pool: Pool, logger: Logger): Promise<void> =
     const filepath = path.join(MIGRATIONS_DIR, filename);
     const sql = await readFile(filepath, 'utf8');
     const statements = sql
+      .replace(/^--.*$/gm, '')
       .split(/;\s*$/m)
       .map((stmt) => stmt.trim())
-      .filter((stmt) => stmt.length > 0 && !stmt.startsWith('--'));
+      .filter((stmt) => stmt.length > 0);
 
     const connection = await pool.getConnection();
     try {

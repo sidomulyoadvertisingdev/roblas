@@ -8,3 +8,5 @@ coverage/
 # WhatsApp LocalAuth sessions contain credentials
 data/*
 !data/.gitkeep
+
+.wwebjs_cache/
