@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { unlink } from 'node:fs/promises';
+import { rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import qrcode from 'qrcode-terminal';
 import whatsappWeb from 'whatsapp-web.js';
@@ -116,12 +116,14 @@ export class WhatsAppService implements WhatsAppGateway {
       } catch {
         this.logger.debug({ event: 'get_chat_failed', from: message.from }, 'Failed to get chat info; assuming non-group');
       }
-      const senderId = message.from;
-      const senderPhone = senderId.split('@')[0] ?? '';
+      const senderId = message.author || message.from;
+      const sender = await this.resolveSenderIdentity(message, senderId);
       const payload: IncomingMessage = {
         messageId: message.id._serialized,
-        from: senderPhone,
-        fromWhatsappId: senderId,
+        from: sender.phone,
+        // Reply to the chat ID, which may intentionally remain an @lid address.
+        fromWhatsappId: message.from,
+        ...(sender.name ? { senderName: sender.name } : {}),
         body: message.body,
         timestamp: message.timestamp,
         isGroup,
@@ -132,6 +134,36 @@ export class WhatsAppService implements WhatsAppGateway {
     } catch (error) {
       this.logger.error({ err: error, event: 'incoming_message_handler_failed' }, 'Incoming handler failed');
     }
+  }
+
+  private async resolveSenderIdentity(
+    message: whatsappWeb.Message,
+    senderId: string,
+  ): Promise<{ phone: string; name: string | null }> {
+    let phone = senderId.split('@')[0] ?? '';
+    let name: string | null = null;
+
+    try {
+      const contact = await message.getContact();
+      name = contact.pushname || contact.name || contact.shortName || null;
+      if (!senderId.endsWith('@lid') && contact.number) phone = contact.number;
+    } catch (error) {
+      this.logger.debug({ err: error, event: 'sender_contact_resolution_failed', senderId }, 'Failed to resolve sender contact');
+    }
+
+    if (!senderId.endsWith('@lid')) return { phone, name };
+
+    try {
+      const [mapping] = await this.client.getContactLidAndPhone([senderId]);
+      if (mapping?.pn) {
+        phone = mapping.pn.split('@')[0] ?? '';
+        this.logger.debug({ event: 'lid_sender_resolved', lid: senderId, phone }, 'Resolved LID sender to phone number');
+      }
+    } catch (error) {
+      this.logger.warn({ err: error, event: 'lid_sender_resolution_failed', lid: senderId }, 'Failed to resolve LID sender');
+    }
+
+    return { phone, name };
   }
 
   async initialize(): Promise<void> {
@@ -169,6 +201,25 @@ export class WhatsAppService implements WhatsAppGateway {
       this.setState('stopped');
       this.logger.info('WhatsApp client stopped');
     }
+  }
+
+  async cleanupSession(): Promise<void> {
+    try {
+      await this.client.logout();
+      this.logger.info({ event: 'whatsapp_logout' }, 'WhatsApp logged out (device unlinked)');
+    } catch (error) {
+      this.logger.warn({ err: error, event: 'whatsapp_logout_failed' }, 'Logout failed; cleaning session files anyway');
+    }
+    try {
+      if (existsSync(this.sessionDir)) {
+        await rm(this.sessionDir, { recursive: true, force: true });
+        this.logger.info({ event: 'session_dir_removed', path: this.sessionDir }, 'Session directory removed');
+      }
+    } catch (error) {
+      this.logger.error({ err: error, event: 'session_cleanup_failed' }, 'Failed to remove session directory');
+    }
+    this.qr = null;
+    this.setState('stopped');
   }
 
   getStatus(): WhatsAppStatus {

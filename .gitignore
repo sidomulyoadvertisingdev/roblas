@@ -4,6 +4,7 @@ coverage/
 .env
 *.log
 .DS_Store
+.wwebjs_cache/
 
 # WhatsApp LocalAuth sessions contain credentials
 data/*

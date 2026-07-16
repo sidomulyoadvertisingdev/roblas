@@ -8,8 +8,11 @@ import { createRepositories, type Repositories } from './db/index.js';
 import { SettingsManager } from './settings/manager.js';
 import { createWebhookForwarder } from './webhook/forwarder.js';
 import { WhatsAppService } from './whatsapp/service.js';
+import { WhatsAppManager } from './whatsapp/manager.js';
 import { normalizePhoneNumber } from './whatsapp/phone.js';
-import { createBotHandler } from './bot/handler.js';
+import { TenantResolver, TenantConfigLoader } from './tenant/index.js';
+import { createSessionMiddleware } from './auth/session.js';
+import type { WhatsAppGateway } from './whatsapp/types.js';
 
 const pool = createPool({
   host: env.DB_HOST,
@@ -22,6 +25,8 @@ const pool = createPool({
 let repositories: Repositories | undefined;
 let agentId: number | undefined;
 const settingsManager = new SettingsManager(env);
+let tenantResolver: TenantResolver | undefined;
+let tenantConfigLoader: TenantConfigLoader | undefined;
 
 const bootstrapDatabase = async (): Promise<void> => {
   try {
@@ -30,11 +35,21 @@ const bootstrapDatabase = async (): Promise<void> => {
     repositories = createRepositories(pool);
     settingsManager.attachRepository(repositories.settings);
     await settingsManager.load();
+
+    // Initialize tenant modules
+    tenantResolver = new TenantResolver({ pool, logger });
+    tenantConfigLoader = new TenantConfigLoader({ pool, logger });
+
     logger.info({ db: env.DB_NAME, host: env.DB_HOST }, 'Database connected');
-    const phone = env.WA_BOT_PHONE ? normalizePhoneNumber(env.WA_BOT_PHONE) : env.WA_CLIENT_ID;
-    const agent = await repositories.agents.ensure(env.WA_CLIENT_ID, phone);
-    agentId = agent.id;
-    logger.info({ agentId, clientId: agent.clientId, phone: agent.phone }, 'Default agent ready');
+    // Single-tenant: ensure default agent exists
+    if (env.WA_CLIENT_ID) {
+      const phone = env.WA_BOT_PHONE ? normalizePhoneNumber(env.WA_BOT_PHONE) : env.WA_CLIENT_ID;
+      const agent = await repositories.agents.ensure(env.WA_CLIENT_ID, phone);
+      agentId = agent.id;
+      logger.info({ agentId, clientId: agent.clientId, phone: agent.phone }, 'Default agent ready');
+    } else {
+      logger.info('Multi-tenant mode: skipping default agent (per-tenant from DB)');
+    }
   } catch (error) {
     logger.error({ err: error, event: 'db_bootstrap_failed' }, 'Database bootstrap failed; service will run without persistence');
     repositories = undefined;
@@ -82,28 +97,46 @@ if (initialWebhook.url) {
   logger.warn('Webhook URL not configured; incoming messages will not be forwarded. Configure via dashboard or WEBHOOK_URL env.');
 }
 
-const whatsapp = new WhatsAppService({
-  clientId: env.WA_CLIENT_ID,
-  authPath: env.WA_AUTH_PATH,
-  headless: env.WA_HEADLESS,
-  ...(env.PUPPETEER_EXECUTABLE_PATH ? { executablePath: env.PUPPETEER_EXECUTABLE_PATH } : {}),
-  ...(env.WA_BOT_PHONE ? { expectedBotPhone: env.WA_BOT_PHONE } : {}),
-  onIncomingMessage: webhookHandler,
-}, logger);
+// Determine mode: multi-tenant or single-tenant
+let whatsapp: WhatsAppGateway;
+let waManager: WhatsAppManager | undefined;
 
-if (env.BOT_ENABLED && env.GROQ_API_KEY) {
-  const botHandler = createBotHandler(whatsapp, logger, {
-    groqApiKey: env.GROQ_API_KEY,
-    groqModel: env.GROQ_MODEL,
-    getWebhookConfig: () => settingsManager.getWebhookConfig(),
-  }, webhookHandler);
-  whatsapp.replaceMessageHandler(botHandler);
-  logger.info({ event: 'bot_enabled', model: env.GROQ_MODEL }, 'Bot AI handler enabled');
-} else if (env.BOT_ENABLED) {
-  logger.warn('BOT_ENABLED but missing GROQ_API_KEY; bot disabled');
+if (tenantResolver && tenantConfigLoader) {
+  // Multi-tenant mode: manager handles all WA clients
+  waManager = new WhatsAppManager({
+    pool,
+    logger,
+    authPath: env.WA_AUTH_PATH,
+    headless: env.WA_HEADLESS,
+    executablePath: env.PUPPETEER_EXECUTABLE_PATH,
+    tenantResolver,
+    tenantConfigLoader,
+    settingsManager,
+    fallbackHandler: webhookHandler,
+  });
+
+  await waManager.loadAllClients();
+
+  // Use first ready client (or first client) as default for API/dashboard
+  const defaultClient = waManager.getDefaultClient();
+  if (defaultClient) {
+    whatsapp = defaultClient;
+  } else {
+    // No clients loaded — create a placeholder for API endpoints
+    // This keeps /health and /api/status working even when no tenants exist
+    whatsapp = new WhatsAppService({
+      clientId: '__placeholder__',
+      authPath: env.WA_AUTH_PATH,
+      headless: env.WA_HEADLESS,
+      ...(env.PUPPETEER_EXECUTABLE_PATH ? { executablePath: env.PUPPETEER_EXECUTABLE_PATH } : {}),
+      onIncomingMessage: webhookHandler,
+    }, logger);
+  }
+
+  logger.info({ event: 'multi_tenant_enabled', clients: waManager.getAllStatus().length }, 'Multi-tenant mode active');
 }
 
-const app = createApp(whatsapp, logger, {
+const app = await createApp(logger, {
   apiKey: env.API_KEY,
   corsOrigin: env.CORS_ORIGIN,
   rateLimit: { windowMs: env.RATE_LIMIT_WINDOW_MS, max: env.RATE_LIMIT_MAX },
@@ -113,14 +146,32 @@ const app = createApp(whatsapp, logger, {
   settings: settingsManager,
   ...(repositories ? { repositories } : {}),
   ...(agentId !== undefined ? { agentId } : {}),
+  ...(tenantResolver && tenantConfigLoader ? { tenantResolver, tenantConfigLoader } : {}),
+  ...(waManager ? { whatsappManager: waManager } : {}),
+  ...(pool && env.SESSION_SECRET ? {
+    sessionMiddleware: createSessionMiddleware({
+      secret: env.SESSION_SECRET,
+      maxAgeMs: env.SESSION_MAX_AGE_MS,
+      db: { host: env.DB_HOST, port: env.DB_PORT, user: env.DB_USER, password: env.DB_PASSWORD, database: env.DB_NAME },
+      logger,
+    }),
+    pool,
+  } : {}),
 });
 const server = createServer(app);
 
 server.listen(env.PORT, env.HOST, () => {
   logger.info({ host: env.HOST, port: env.PORT }, 'HTTP server listening');
-  void whatsapp.initialize().catch((error: unknown) => {
-    logger.error({ err: error }, 'WhatsApp initialization failed; HTTP status endpoints remain available');
-  });
+
+  if (waManager) {
+    // Multi-tenant: clients already initialized by loadAllClients
+    logger.info({ clients: waManager.getAllStatus().length }, 'All WA clients started');
+  } else {
+    // Single-tenant: initialize the one client
+    void whatsapp.initialize().catch((error: unknown) => {
+      logger.error({ err: error }, 'WhatsApp initialization failed; HTTP status endpoints remain available');
+    });
+  }
 });
 
 let shuttingDown = false;
@@ -132,7 +183,11 @@ const shutdown = (signal: string): void => {
   server.close((serverError) => {
     void (async () => {
       try {
-        await whatsapp.shutdown();
+        if (waManager) {
+          await waManager.shutdownAll();
+        } else {
+          await whatsapp.shutdown();
+        }
         await pool.end().catch(() => undefined);
         if (serverError) throw serverError;
         logger.info('Graceful shutdown completed');

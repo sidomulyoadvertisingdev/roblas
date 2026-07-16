@@ -35,6 +35,7 @@ export interface IncomingMessage {
   messageId: string;
   from: string;
   fromWhatsappId: string;
+  senderName?: string;
   body: string;
   timestamp: number;
   isGroup: boolean;
@@ -47,6 +48,7 @@ export type IncomingMessageHandler = (message: IncomingMessage) => void | Promis
 export interface WhatsAppGateway {
   initialize(): Promise<void>;
   shutdown(): Promise<void>;
+  cleanupSession(): Promise<void>;
   getStatus(): WhatsAppStatus;
   getQr(): string | null;
   sendMessage(phone: string, message: string): Promise<SendMessageResult>;

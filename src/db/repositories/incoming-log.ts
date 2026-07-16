@@ -4,6 +4,7 @@ export type WebhookStatus = 'pending' | 'delivered' | 'failed' | 'skipped';
 
 export interface IncomingLogEntry {
   id: number;
+  tenantId: string | null;
   agentId: number;
   waMessageId: string;
   fromPhone: string;
@@ -19,6 +20,7 @@ export interface IncomingLogEntry {
 
 interface IncomingLogRow extends RowDataPacket {
   id: number;
+  tenant_id: string | null;
   agent_id: number;
   wa_message_id: string;
   from_phone: string;
@@ -34,6 +36,7 @@ interface IncomingLogRow extends RowDataPacket {
 
 const mapRow = (row: IncomingLogRow): IncomingLogEntry => ({
   id: row.id,
+  tenantId: row.tenant_id,
   agentId: row.agent_id,
   waMessageId: row.wa_message_id,
   fromPhone: row.from_phone,
@@ -48,6 +51,7 @@ const mapRow = (row: IncomingLogRow): IncomingLogEntry => ({
 });
 
 export interface RecordIncomingInput {
+  tenantId?: string | null;
   agentId: number;
   waMessageId: string;
   fromPhone: string;
@@ -64,10 +68,11 @@ export class IncomingLogRepository {
   async record(input: RecordIncomingInput): Promise<number> {
     const [result] = await this.pool.execute<ResultSetHeader>(
       `INSERT INTO incoming_log
-       (agent_id, wa_message_id, from_phone, body_length, msg_type, is_group, has_media, webhook_status)
-       VALUES (:agentId, :waMessageId, :fromPhone, :bodyLength, :msgType, :isGroup, :hasMedia, :status)
+       (tenant_id, agent_id, wa_message_id, from_phone, body_length, msg_type, is_group, has_media, webhook_status)
+       VALUES (:tenantId, :agentId, :waMessageId, :fromPhone, :bodyLength, :msgType, :isGroup, :hasMedia, :status)
        ON DUPLICATE KEY UPDATE received_at = received_at`,
       {
+        tenantId: input.tenantId ?? null,
         agentId: input.agentId,
         waMessageId: input.waMessageId,
         fromPhone: input.fromPhone,
@@ -92,11 +97,12 @@ export class IncomingLogRepository {
     );
   }
 
-  async list(options: { agentId?: number; limit?: number; offset?: number; status?: WebhookStatus } = {}): Promise<IncomingLogEntry[]> {
+  async list(options: { tenantId?: string; agentId?: number; limit?: number; offset?: number; status?: WebhookStatus } = {}): Promise<IncomingLogEntry[]> {
     const limit = Math.min(Math.max(options.limit ?? 100, 1), 500);
     const offset = Math.max(options.offset ?? 0, 0);
     const clauses: string[] = [];
     const params: Record<string, unknown> = { limit, offset };
+    if (options.tenantId) { clauses.push('tenant_id = :tenantId'); params.tenantId = options.tenantId; }
     if (options.agentId !== undefined) { clauses.push('agent_id = :agentId'); params.agentId = options.agentId; }
     if (options.status) { clauses.push('webhook_status = :status'); params.status = options.status; }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';

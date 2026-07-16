@@ -2,6 +2,7 @@ import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 
 export interface Contact {
   id: number;
+  tenantId: string | null;
   phone: string;
   name: string | null;
   role: string | null;
@@ -14,6 +15,7 @@ export interface Contact {
 
 interface ContactRow extends RowDataPacket {
   id: number;
+  tenant_id: string | null;
   phone: string;
   name: string | null;
   role: string | null;
@@ -26,6 +28,7 @@ interface ContactRow extends RowDataPacket {
 
 const mapRow = (row: ContactRow): Contact => ({
   id: row.id,
+  tenantId: row.tenant_id,
   phone: row.phone,
   name: row.name,
   role: row.role,
@@ -37,6 +40,7 @@ const mapRow = (row: ContactRow): Contact => ({
 });
 
 export interface UpsertContactInput {
+  tenantId?: string | null;
   phone: string;
   name?: string | null;
   role?: string | null;
@@ -48,9 +52,12 @@ export interface UpsertContactInput {
 export class ContactsRepository {
   constructor(private readonly pool: Pool) {}
 
-  async list(agentId?: number): Promise<Contact[]> {
-    const where = agentId !== undefined ? 'WHERE agent_id = :agentId OR agent_id IS NULL' : '';
-    const params = agentId !== undefined ? { agentId } : {};
+  async list(options: { tenantId?: string; agentId?: number } = {}): Promise<Contact[]> {
+    const clauses: string[] = [];
+    const params: Record<string, string | number> = {};
+    if (options.tenantId) { clauses.push('tenant_id = :tenantId'); params.tenantId = options.tenantId; }
+    if (options.agentId !== undefined) { clauses.push('(agent_id = :agentId OR agent_id IS NULL)'); params.agentId = options.agentId; }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     const [rows] = await this.pool.execute<ContactRow[]>(
       `SELECT * FROM contacts ${where} ORDER BY created_at DESC`,
       params,
@@ -58,21 +65,25 @@ export class ContactsRepository {
     return rows.map(mapRow);
   }
 
-  async findEnabledPhones(agentId?: number): Promise<Set<string>> {
-    const where = agentId !== undefined ? 'WHERE (agent_id = :agentId OR agent_id IS NULL)' : '';
-    const params: Record<string, unknown> = agentId !== undefined ? { agentId } : {};
+  async findEnabledPhones(options: { tenantId?: string; agentId?: number } = {}): Promise<Set<string>> {
+    const clauses: string[] = ['is_enabled = 1'];
+    const params: Record<string, string | number> = {};
+    if (options.tenantId) { clauses.push('tenant_id = :tenantId'); params.tenantId = options.tenantId; }
+    if (options.agentId !== undefined) { clauses.push('(agent_id = :agentId OR agent_id IS NULL)'); params.agentId = options.agentId; }
+    const where = `WHERE ${clauses.join(' AND ')}`;
     const [rows] = await this.pool.execute<(RowDataPacket & { phone: string })[]>(
-      `SELECT phone FROM contacts ${where}${where ? ' AND' : ' WHERE'} is_enabled = 1`,
-      params as never,
+      `SELECT phone FROM contacts ${where}`,
+      params,
     );
     return new Set(rows.map((row) => row.phone));
   }
 
   async create(input: UpsertContactInput): Promise<Contact> {
     const [result] = await this.pool.execute<ResultSetHeader>(
-      `INSERT INTO contacts (phone, name, role, agent_id, is_enabled, notes)
-       VALUES (:phone, :name, :role, :agentId, :isEnabled, :notes)`,
+      `INSERT INTO contacts (tenant_id, phone, name, role, agent_id, is_enabled, notes)
+       VALUES (:tenantId, :phone, :name, :role, :agentId, :isEnabled, :notes)`,
       {
+        tenantId: input.tenantId ?? null,
         phone: input.phone,
         name: input.name ?? null,
         role: input.role ?? null,

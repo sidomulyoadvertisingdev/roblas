@@ -414,6 +414,13 @@ textarea { resize: vertical; min-height: 100px; }
   border: 1px solid rgba(235, 224, 194, 0.7);
 }
 .btn.ghost:hover { background: rgba(254, 248, 231, 0.85); }
+.btn.danger {
+  background: rgba(220, 38, 38, 0.9);
+  color: white;
+  border-color: rgba(220, 38, 38, 0.4);
+}
+.btn.danger:hover { filter: brightness(1.1); }
+.btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important; }
 .row { display: flex; gap: 0.5rem; align-items: center; }
 .row.space-between { justify-content: space-between; }
 
