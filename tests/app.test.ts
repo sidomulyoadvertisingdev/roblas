@@ -4,6 +4,7 @@ import { createApp } from '../src/app.js';
 import { createLogger } from '../src/logger.js';
 import type { Environment } from '../src/config/env.js';
 import type { WhatsAppGateway } from '../src/whatsapp/types.js';
+import type { WhatsAppManager } from '../src/whatsapp/manager.js';
 
 const apiKey = 'test-api-key-with-enough-length';
 
@@ -57,41 +58,45 @@ const createFakeGateway = (): WhatsAppGateway => ({
   }),
 });
 
-const makeApp = (gateway = createFakeGateway()) => ({
-  app: createApp(gateway, createLogger('silent'), {
+const makeApp = async (gateway = createFakeGateway()) => ({
+  app: await createApp(createLogger('silent'), {
     apiKey,
     corsOrigin: 'http://localhost:5001',
     rateLimit: { windowMs: 60_000, max: 100 },
     sendRateLimit: { windowMs: 60_000, max: 20 },
+    trustProxy: 0,
     env: fakeEnv,
+    whatsappManager: {
+      getDefaultClient: () => gateway,
+    } as unknown as WhatsAppManager,
   }),
   gateway,
 });
 
 describe('HTTP API', () => {
   it('serves health without authentication', async () => {
-    const { app } = makeApp();
+    const { app } = await makeApp();
     const response = await request(app).get('/health');
     expect(response.status).toBe(200);
     expect(response.body.data.whatsappReady).toBe(true);
   });
 
   it('protects API endpoints with an API key', async () => {
-    const { app } = makeApp();
+    const { app } = await makeApp();
     const response = await request(app).get('/api/status');
     expect(response.status).toBe(401);
     expect(response.body.error.code).toBe('UNAUTHORIZED');
   });
 
   it('returns WhatsApp status with authentication', async () => {
-    const { app } = makeApp();
+    const { app } = await makeApp();
     const response = await request(app).get('/api/status').set('x-api-key', apiKey);
     expect(response.status).toBe(200);
     expect(response.body.data.state).toBe('ready');
   });
 
   it('validates send payloads', async () => {
-    const { app, gateway } = makeApp();
+    const { app, gateway } = await makeApp();
     const response = await request(app)
       .post('/api/send')
       .set('x-api-key', apiKey)
@@ -101,7 +106,7 @@ describe('HTTP API', () => {
   });
 
   it('sends a validated message', async () => {
-    const { app, gateway } = makeApp();
+    const { app, gateway } = await makeApp();
     const response = await request(app)
       .post('/api/send')
       .set('x-api-key', apiKey)
@@ -111,7 +116,7 @@ describe('HTTP API', () => {
   });
 
   it('validates a WhatsApp number', async () => {
-    const { app } = makeApp();
+    const { app } = await makeApp();
     const response = await request(app)
       .post('/api/validate-number')
       .set('x-api-key', apiKey)

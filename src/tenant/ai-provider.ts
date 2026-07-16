@@ -27,7 +27,7 @@ export interface AiResponse {
 }
 
 export interface AiProvider {
-  chat(messages: AiMessage[], options?: { temperature?: number; maxTokens?: number }): Promise<AiResponse>;
+  chat(messages: AiMessage[], options?: { temperature?: number; maxTokens?: number; jsonMode?: boolean }): Promise<AiResponse>;
 }
 
 export class GroqProvider implements AiProvider {
@@ -41,7 +41,7 @@ export class GroqProvider implements AiProvider {
     this.logger = logger;
   }
 
-  async chat(messages: AiMessage[], options?: { temperature?: number; maxTokens?: number }): Promise<AiResponse> {
+  async chat(messages: AiMessage[], options?: { temperature?: number; maxTokens?: number; jsonMode?: boolean }): Promise<AiResponse> {
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -53,7 +53,7 @@ export class GroqProvider implements AiProvider {
         messages,
         temperature: options?.temperature ?? 0,
         max_tokens: options?.maxTokens ?? 256,
-        response_format: { type: 'json_object' },
+        ...(options?.jsonMode !== false ? { response_format: { type: 'json_object' } } : {}),
       }),
     });
 
@@ -88,7 +88,7 @@ export class OpenAiProvider implements AiProvider {
     this.logger = logger;
   }
 
-  async chat(messages: AiMessage[], options?: { temperature?: number; maxTokens?: number }): Promise<AiResponse> {
+  async chat(messages: AiMessage[], options?: { temperature?: number; maxTokens?: number; jsonMode?: boolean }): Promise<AiResponse> {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -100,7 +100,7 @@ export class OpenAiProvider implements AiProvider {
         messages,
         temperature: options?.temperature ?? 0,
         max_tokens: options?.maxTokens ?? 256,
-        response_format: { type: 'json_object' },
+        ...(options?.jsonMode !== false ? { response_format: { type: 'json_object' } } : {}),
       }),
     });
 
@@ -135,7 +135,7 @@ export class CustomProvider implements AiProvider {
     this.logger = logger;
   }
 
-  async chat(messages: AiMessage[], options?: { temperature?: number; maxTokens?: number }): Promise<AiResponse> {
+  async chat(messages: AiMessage[], options?: { temperature?: number; maxTokens?: number; jsonMode?: boolean }): Promise<AiResponse> {
     const response = await fetch(this.model, {
       method: 'POST',
       headers: {
@@ -146,6 +146,7 @@ export class CustomProvider implements AiProvider {
         messages,
         temperature: options?.temperature ?? 0,
         max_tokens: options?.maxTokens ?? 256,
+        ...(options?.jsonMode !== false ? { response_format: { type: 'json_object' } } : {}),
       }),
     });
 
@@ -169,16 +170,17 @@ export class CustomProvider implements AiProvider {
   }
 }
 
-export function createAiProvider(aiConfig: TenantAiConfig, logger: Logger): AiProvider | null {
-  if (!aiConfig.apiKey) return null;
+export function createAiProvider(aiConfig: TenantAiConfig, logger: Logger, globalApiKey?: string  ): AiProvider | null {
+  const apiKey = aiConfig.apiKey || globalApiKey;
+  if (!apiKey) return null;
 
   switch (aiConfig.provider) {
     case 'groq':
-      return new GroqProvider(aiConfig.apiKey, aiConfig.model, logger);
+      return new GroqProvider(apiKey, aiConfig.model, logger);
     case 'openai':
-      return new OpenAiProvider(aiConfig.apiKey, aiConfig.model, logger);
+      return new OpenAiProvider(apiKey, aiConfig.model, logger);
     case 'custom':
-      return new CustomProvider(aiConfig.apiKey, aiConfig.model, logger);
+      return new CustomProvider(apiKey, aiConfig.model, logger);
     default:
       return null;
   }

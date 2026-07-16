@@ -10,8 +10,8 @@ import { createWebhookForwarder } from './webhook/forwarder.js';
 import { WhatsAppService } from './whatsapp/service.js';
 import { WhatsAppManager } from './whatsapp/manager.js';
 import { normalizePhoneNumber } from './whatsapp/phone.js';
-import { createBotHandler } from './bot/handler.js';
 import { TenantResolver, TenantConfigLoader } from './tenant/index.js';
+import { createSessionMiddleware } from './auth/session.js';
 import type { WhatsAppGateway } from './whatsapp/types.js';
 
 const pool = createPool({
@@ -134,47 +134,9 @@ if (tenantResolver && tenantConfigLoader) {
   }
 
   logger.info({ event: 'multi_tenant_enabled', clients: waManager.getAllStatus().length }, 'Multi-tenant mode active');
-} else if (env.BOT_ENABLED && env.GROQ_API_KEY && env.WA_CLIENT_ID) {
-  // Single-tenant mode (requires WA_CLIENT_ID)
-  const service = new WhatsAppService({
-    clientId: env.WA_CLIENT_ID,
-    authPath: env.WA_AUTH_PATH,
-    headless: env.WA_HEADLESS,
-    ...(env.PUPPETEER_EXECUTABLE_PATH ? { executablePath: env.PUPPETEER_EXECUTABLE_PATH } : {}),
-    ...(env.WA_BOT_PHONE ? { expectedBotPhone: env.WA_BOT_PHONE } : {}),
-    onIncomingMessage: webhookHandler,
-  }, logger);
-
-  const botHandler = createBotHandler(service, logger, {
-    groqApiKey: env.GROQ_API_KEY,
-    groqModel: env.GROQ_MODEL,
-    getWebhookConfig: () => settingsManager.getWebhookConfig(),
-  }, webhookHandler);
-  service.replaceMessageHandler(botHandler);
-  whatsapp = service;
-  logger.info({ event: 'legacy_bot_enabled', model: env.GROQ_MODEL }, 'Legacy single-tenant bot enabled');
-} else if (env.WA_CLIENT_ID) {
-  // No bot, just webhook forwarding (single-tenant)
-  whatsapp = new WhatsAppService({
-    clientId: env.WA_CLIENT_ID,
-    authPath: env.WA_AUTH_PATH,
-    headless: env.WA_HEADLESS,
-    ...(env.PUPPETEER_EXECUTABLE_PATH ? { executablePath: env.PUPPETEER_EXECUTABLE_PATH } : {}),
-    ...(env.WA_BOT_PHONE ? { expectedBotPhone: env.WA_BOT_PHONE } : {}),
-    onIncomingMessage: webhookHandler,
-  }, logger);
-} else {
-  // No WhatsApp configured — API-only mode
-  whatsapp = new WhatsAppService({
-    clientId: '__none__',
-    authPath: env.WA_AUTH_PATH,
-    headless: env.WA_HEADLESS,
-    onIncomingMessage: webhookHandler,
-  }, logger);
-  logger.warn('No WhatsApp configured (no WA_CLIENT_ID, no multi-tenant). API-only mode.');
 }
 
-const app = createApp(whatsapp, logger, {
+const app = await createApp(logger, {
   apiKey: env.API_KEY,
   corsOrigin: env.CORS_ORIGIN,
   rateLimit: { windowMs: env.RATE_LIMIT_WINDOW_MS, max: env.RATE_LIMIT_MAX },
@@ -185,6 +147,16 @@ const app = createApp(whatsapp, logger, {
   ...(repositories ? { repositories } : {}),
   ...(agentId !== undefined ? { agentId } : {}),
   ...(tenantResolver && tenantConfigLoader ? { tenantResolver, tenantConfigLoader } : {}),
+  ...(waManager ? { whatsappManager: waManager } : {}),
+  ...(pool && env.SESSION_SECRET ? {
+    sessionMiddleware: createSessionMiddleware({
+      secret: env.SESSION_SECRET,
+      maxAgeMs: env.SESSION_MAX_AGE_MS,
+      db: { host: env.DB_HOST, port: env.DB_PORT, user: env.DB_USER, password: env.DB_PASSWORD, database: env.DB_NAME },
+      logger,
+    }),
+    pool,
+  } : {}),
 });
 const server = createServer(app);
 

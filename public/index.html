@@ -16,57 +16,47 @@
         </div>
 
         <nav class="menu" id="menu">
-          <a href="#/overview" data-route="overview">
+          <a href="/" data-route="overview">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 12L12 4l9 8"/><path d="M5 10v10h14V10"/></svg>
             <span>Ringkasan</span>
           </a>
-          <a href="#/send" data-route="send">
+          <a href="/send" data-route="send">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 12l16-8-6 18-3-8-7-2z"/></svg>
             <span>Kirim Pesan</span>
           </a>
-          <a href="#/history" data-route="history">
+          <a href="/history" data-route="history">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="9"/></svg>
             <span>Riwayat Terkirim</span>
           </a>
-          <a href="#/contacts" data-route="contacts">
+          <a href="/contacts" data-route="contacts">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 21v-1a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v1"/><circle cx="12" cy="8" r="4"/></svg>
             <span>Validasi Nomor</span>
           </a>
-          <a href="#/webhook" data-route="webhook">
+          <a href="/webhook" data-route="webhook">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 14l-4 4M14 14l4 4M12 2a4 4 0 0 0-4 4v6a4 4 0 0 0 8 0V6a4 4 0 0 0-4-4z"/></svg>
             <span>Webhook</span>
           </a>
-          <a href="#/logs" data-route="logs">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
-            <span>Log Live</span>
-          </a>
-          <a href="#/settings" data-route="settings">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
-            <span>Pengaturan</span>
-          </a>
-          <a href="#/api" data-route="api">
+          <a href="/api" data-route="api">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3H4v18h16V3h-4M9 3h6v4H9z"/></svg>
             <span>Dokumentasi API</span>
           </a>
         </nav>
 
-        <div class="user-card">
-          <div class="avatar">RJ</div>
+        <div class="user-card" id="userCard" style="display:none">
+          <img id="userAvatar" class="avatar" src="" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover;display:none">
+          <div class="avatar" id="userInitials">—</div>
           <div class="user-info">
-            <strong id="botIdentity">bot</strong>
+            <strong id="userName">—</strong>
             <span class="tag" id="botTag">idle</span>
           </div>
-          <button type="button" class="icon-btn" title="Muat ulang" id="btnReload">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+          <button type="button" class="icon-btn" title="Logout" id="btnLogout">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
           </button>
         </div>
       </aside>
 
       <div class="main">
         <header class="page-header">
-          <button type="button" class="icon-btn back" title="Kembali" id="btnBack">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 18l-6-6 6-6"/></svg>
-          </button>
           <div class="titles">
             <h1 id="pageTitle">Ringkasan</h1>
             <p id="pageSubtitle">Status koneksi WhatsApp gateway</p>
@@ -111,7 +101,7 @@
           <span class="muted" id="statUpdated">—</span>
         </article>
         <article class="metric">
-          <span class="label">Webhook ERP</span>
+          <span class="label">Webhook</span>
           <strong id="statWebhook">—</strong>
           <span class="muted" id="statWebhookMode">—</span>
         </article>
@@ -119,30 +109,54 @@
 
       <section class="card qr-card hidden" id="qrCard">
         <div>
-          <h2>Perlu Scan QR</h2>
-          <p class="muted">Buka WhatsApp → <b>Setelan</b> → <b>Perangkat tertaut</b> → <b>Tautkan perangkat</b>. QR di-refresh otomatis.</p>
+          <h2 id="waCardTitle">Perlu Scan QR</h2>
+          <p class="muted" id="waCardHint">Buka WhatsApp → <b>Setelan</b> → <b>Perangkat tertaut</b> → <b>Tautkan perangkat</b>. QR di-refresh otomatis.</p>
         </div>
         <div id="qrHost"></div>
+        <div class="row" style="gap:8px;margin-top:12px" id="waActions">
+          <button type="button" class="btn danger" id="btnDisconnect">Putuskan Koneksi</button>
+          <button type="button" class="btn primary hidden" id="btnReconnect">Sambungkan Ulang</button>
+        </div>
+      </section>
+
+      <section class="grid four">
+        <article class="metric">
+          <span class="label">Pesan Hari Ini</span>
+          <strong id="statTodayTotal">0</strong>
+          <span class="muted" id="statTodayTime">—</span>
+        </article>
+        <article class="metric">
+          <span class="label">Berhasil</span>
+          <strong id="statTodaySuccess" style="color:var(--ok)">0</strong>
+          <span class="muted" id="statSuccessRate">—</span>
+        </article>
+        <article class="metric">
+          <span class="label">Gagal</span>
+          <strong id="statTodayFailed" style="color:var(--danger)">0</strong>
+          <span class="muted" id="statFailedRate">—</span>
+        </article>
+        <article class="metric">
+          <span class="label">Total Pesan</span>
+          <strong id="statAllTime">0</strong>
+          <span class="muted" id="statAllTimeLabel">semua waktu</span>
+        </article>
       </section>
 
       <section class="grid two">
         <article class="card">
           <div class="card-head">
-            <h2>Ringkasan Cepat</h2>
-            <span class="muted">real-time</span>
+            <h2>Grafik Pengiriman</h2>
+            <span class="muted">7 hari terakhir</span>
           </div>
-          <ul class="quick-list">
-            <li><span>Endpoint publik</span><code id="quickPublicUrl">http://localhost:3001</code></li>
-            <li><span>Client ID</span><code id="quickClient">—</code></li>
-            <li><span>Rate limit send</span><code id="quickRate">— / menit</code></li>
-            <li><span>Nomor bot yang diharapkan</span><code id="quickExpected">—</code></li>
-          </ul>
+          <div style="height:220px;position:relative">
+            <canvas id="chartSendVolume"></canvas>
+          </div>
         </article>
 
         <article class="card">
           <div class="card-head">
             <h2>Aktivitas Terbaru</h2>
-            <a href="#/history" class="link">Lihat semua</a>
+            <a href="/history" class="link" data-route="history">Lihat semua</a>
           </div>
           <div class="mini-list" id="miniHistory">
             <p class="muted empty">Belum ada pesan yang dikirim.</p>
@@ -155,37 +169,33 @@
       <section class="grid two">
         <article class="card">
           <h2>Kirim Pesan Baru</h2>
-          <p class="muted">Pesan dikirim melalui nomor bot yang aktif. Pastikan status <b>ready</b>.</p>
+          <p class="muted">Pesan dikirim melalui nomor WhatsApp yang terhubung. Pastikan status <b>ready</b>.</p>
           <form id="sendForm" class="form">
             <label>Nomor tujuan
               <input name="phone" placeholder="0812xxxxxxxx atau 62812xxxxxxxx" required />
             </label>
             <label>Pesan
-              <textarea name="message" rows="6" placeholder="Halo dari bot..." required></textarea>
+              <textarea name="message" rows="6" placeholder="Tulis pesan Anda di sini..." required></textarea>
             </label>
             <div class="row space-between">
-              <button type="button" class="btn ghost" id="btnQuickTest">Uji ke nomor bot</button>
-              <button type="submit" class="btn primary">Kirim</button>
+              <button type="button" class="btn ghost" id="btnQuickTest">Kirim ke nomor sendiri</button>
+              <button type="submit" class="btn primary">Kirim Pesan</button>
             </div>
           </form>
         </article>
 
         <article class="card">
-          <h2>Aksi Cepat</h2>
-          <div class="quick-actions">
-            <div>
-              <h3>Indikator "sedang mengetik"</h3>
-              <form id="typingForm" class="form">
-                <label>Nomor
-                  <input name="phone" placeholder="0812xxxxxxxx" required />
-                </label>
-                <div class="row">
-                  <button type="button" class="btn" data-state="true">Mulai</button>
-                  <button type="button" class="btn ghost" data-state="false">Berhenti</button>
-                </div>
-              </form>
+          <h2>Indikator Mengetik</h2>
+          <p class="muted">Tampilkan indikator "sedang mengetik" di WhatsApp penerima.</p>
+          <form id="typingForm" class="form">
+            <label>Nomor tujuan
+              <input name="phone" placeholder="0812xxxxxxxx" required />
+            </label>
+            <div class="row">
+              <button type="button" class="btn" data-state="true">Mulai Mengetik</button>
+              <button type="button" class="btn ghost" data-state="false">Berhenti</button>
             </div>
-          </div>
+          </form>
         </article>
       </section>
     </template>
@@ -194,33 +204,34 @@
       <section class="card">
         <div class="card-head">
           <h2>Riwayat Pesan Terkirim</h2>
-          <span class="muted">In-memory · terhapus saat restart</span>
+          <div class="row">
+            <select id="historyFilter" class="select">
+              <option value="all">Semua status</option>
+              <option value="success">Berhasil</option>
+              <option value="failed">Gagal</option>
+            </select>
+          </div>
         </div>
         <table class="table" id="historyTable">
-          <thead><tr><th>Waktu</th><th>Nomor</th><th>Pesan</th><th>Status</th><th>Message ID</th></tr></thead>
-          <tbody><tr><td colspan="5" class="muted center">Belum ada data.</td></tr></tbody>
+          <thead><tr><th>Waktu</th><th>Nomor</th><th>Pesan</th><th>Status</th></tr></thead>
+          <tbody><tr><td colspan="4" class="muted center">Belum ada data.</td></tr></tbody>
         </table>
       </section>
     </template>
 
     <template id="tpl-contacts">
-      <section class="grid two">
-        <article class="card">
-          <h2>Cek Nomor WhatsApp</h2>
-          <p class="muted">Verifikasi nomor apakah terdaftar aktif di WhatsApp.</p>
-          <form id="validateForm" class="form">
+      <section class="card">
+        <h2>Cek Nomor WhatsApp</h2>
+        <p class="muted">Verifikasi apakah nomor terdaftar aktif di WhatsApp.</p>
+        <form id="validateForm" class="form">
+          <div class="grid two" style="gap:12px;align-items:end">
             <label>Nomor
               <input name="phone" placeholder="0812xxxxxxxx" required />
             </label>
-            <button type="submit" class="btn primary">Validasi</button>
-          </form>
-          <div class="result" id="validateResult"></div>
-        </article>
-        <article class="card">
-          <h2>Whitelist Pengirim (dari .env)</h2>
-          <p class="muted">Hanya nomor ini yang diteruskan ke webhook ERP. Edit di file <code>.env</code> lalu restart.</p>
-          <div id="whitelistBox" class="chips"></div>
-        </article>
+            <button type="submit" class="btn primary" style="height:42px">Validasi</button>
+          </div>
+        </form>
+        <div class="result" id="validateResult"></div>
       </section>
     </template>
 
@@ -228,37 +239,40 @@
       <section class="card">
         <div class="card-head">
           <h2>Konfigurasi Webhook</h2>
-          <span class="muted">Tersimpan di database · aktif tanpa restart</span>
+          <span class="muted">Tersimpan per-tenant · aktif tanpa restart</span>
         </div>
         <form id="webhookForm" class="form">
           <label class="field">
-            <span class="field-label">URL webhook ERP</span>
-            <input name="url" type="url" placeholder="https://erp.domainanda.com/wa/incoming" />
-            <span class="muted">Endpoint di aplikasi ERP untuk terima pesan masuk. Kosongkan untuk menonaktifkan.</span>
+            <span class="field-label">URL Webhook ERP</span>
+            <input name="url" type="url" placeholder="https://erpanda.com/wa/incoming" />
+            <span class="muted">Endpoint di aplikasi ERP untuk menerima pesan masuk. Kosongkan untuk menonaktifkan.</span>
           </label>
 
           <label class="field">
-            <span class="field-label">Metode autentikasi</span>
+            <span class="field-label">Metode Autentikasi</span>
             <select name="authMode" id="authModeSelect">
-              <option value="none">Tanpa auth</option>
-              <option value="hmac">HMAC signature (x-wa-signature)</option>
-              <option value="bearer">Bearer token (Authorization header)</option>
+              <option value="none">Tanpa autentikasi</option>
+              <option value="hmac">HMAC Signature (x-wa-signature)</option>
+              <option value="bearer">Bearer Token (Authorization header)</option>
             </select>
-            <span class="muted" id="authModeHint">Pilih metode verifikasi yang didukung endpoint ERP.</span>
+            <span class="muted" id="authModeHint">Pilih metode verifikasi yang didukung endpoint ERP Anda.</span>
           </label>
 
           <label class="field" id="secretField">
-            <span class="field-label">Secret (HMAC signature)</span>
+            <span class="field-label">Secret (HMAC Signature)</span>
             <div class="input-group">
               <input name="secret" type="password" placeholder="Kosongkan untuk tetap gunakan yang tersimpan" />
               <button type="button" class="btn ghost" id="btnGenSecret">Generate</button>
             </div>
-            <span class="muted" id="secretHint">Minimal 16 karakter. Wajib untuk verifikasi HMAC di sisi ERP.</span>
+            <span class="muted" id="secretHint">Minimal 16 karakter. Digunakan untuk verifikasi HMAC di sisi ERP.</span>
           </label>
 
           <label class="field" id="bearerField">
-            <span class="field-label">Bearer token</span>
-            <input name="bearerToken" type="password" placeholder="Contoh: 1606|hgRLAZMa6iYcnEOuQc9kW1Dz170VTvE7NActdVEze922f2a0" />
+            <span class="field-label">Bearer Token</span>
+            <div class="input-group">
+              <input name="bearerToken" type="password" placeholder="Masukkan token autentikasi" autocomplete="off" />
+              <button type="button" class="btn ghost" id="btnToggleBearer" aria-label="Tampilkan Bearer Token">Tampilkan</button>
+            </div>
             <span class="muted" id="bearerHint">Token akan dikirim di header <code>Authorization: Bearer &lt;token&gt;</code>.</span>
           </label>
 
@@ -266,27 +280,27 @@
             <label class="field">
               <span class="field-label">Timeout (ms)</span>
               <input name="timeoutMs" type="number" min="1000" max="60000" placeholder="8000" />
-              <span class="muted">1000–60000 ms.</span>
+              <span class="muted">1000–60000 ms. Default: 8000 ms.</span>
             </label>
             <label class="toggle-card">
               <input name="ignoreGroups" type="checkbox" />
               <span class="toggle-body">
-                <span class="toggle-title">Abaikan pesan grup</span>
-                <span class="toggle-hint">Skip pesan yang datang dari WhatsApp Group.</span>
+                <span class="toggle-title">Abaikan Pesan Grup</span>
+                <span class="toggle-hint">Jangan teruskan pesan dari WhatsApp Group ke webhook.</span>
               </span>
             </label>
           </div>
 
           <label class="field">
-            <span class="field-label">Whitelist nomor pengirim</span>
-            <textarea name="allowedSenders" rows="3" placeholder="6281234567890, 6289876543210"></textarea>
-            <span class="muted">Pisahkan dengan koma atau baris baru. Kosongkan untuk terima semua nomor (⚠ tidak disarankan).</span>
+            <span class="field-label">Whitelist Nomor Pengirim</span>
+            <textarea name="allowedSenders" rows="3" placeholder="Contoh: 6281234567890&#10;Satu nomor per baris"></textarea>
+            <span class="muted">Pisahkan dengan koma atau baris baru. Kosongkan untuk menerima semua nomor.</span>
           </label>
 
           <div class="form-actions">
             <div class="row" style="gap:6px">
-              <button type="button" class="btn ghost" id="btnClearSecret">Hapus secret</button>
-              <button type="button" class="btn ghost" id="btnClearBearer">Hapus token</button>
+              <button type="button" class="btn ghost" id="btnClearSecret">Hapus Secret</button>
+              <button type="button" class="btn ghost" id="btnClearBearer">Hapus Token</button>
             </div>
             <button type="submit" class="btn primary">Simpan Perubahan</button>
           </div>
@@ -295,98 +309,60 @@
 
       <section class="grid two">
         <article class="card">
-          <h2>Status Runtime</h2>
+          <h2>Status Webhook</h2>
           <ul class="quick-list">
-            <li><span>URL aktif</span><code id="whUrl">—</code></li>
-            <li><span>Auth mode</span><code id="whAuthMode">—</code></li>
+            <li><span>URL Aktif</span><code id="whUrl">—</code></li>
+            <li><span>Auth Mode</span><code id="whAuthMode">—</code></li>
             <li><span>Secret HMAC</span><code id="whSecret">—</code></li>
-            <li><span>Bearer token</span><code id="whBearer">—</code></li>
+            <li><span>Bearer Token</span><code id="whBearer">—</code></li>
             <li><span>Timeout</span><code id="whTimeout">—</code></li>
-            <li><span>Group message</span><code id="whGroups">—</code></li>
+            <li><span>Grup</span><code id="whGroups">—</code></li>
             <li><span>Whitelist</span><code id="whAllowed">—</code></li>
           </ul>
         </article>
         <article class="card">
-          <h2>Payload ke ERP</h2>
+          <h2>Contoh Payload</h2>
           <pre class="code-block"><code>POST &lt;WEBHOOK_URL&gt;
-content-type: application/json
-user-agent: rorojongrang-wa-service
-
-# Salah satu header di bawah, tergantung auth mode:
-x-wa-signature: sha256=&lt;hmac_sha256(body, secret)&gt;
-Authorization: Bearer &lt;bearer_token&gt;
+Content-Type: application/json
+User-Agent: rorojongrang-wa
 
 {
   "messageId": "...",
   "from": "628xxx",
-  "fromWhatsappId": "628xxx@c.us",
   "body": "pesan masuk",
   "timestamp": 1721001234,
   "isGroup": false,
-  "hasMedia": false,
   "type": "chat"
 }</code></pre>
         </article>
       </section>
     </template>
 
-    <template id="tpl-logs">
-      <section class="card">
-        <div class="card-head">
-          <h2>Log Live</h2>
-          <div class="row">
-            <label class="inline"><input type="checkbox" id="logAutoscroll" checked /> Auto-scroll</label>
-            <select id="logFilter" class="select">
-              <option value="all">Semua level</option>
-              <option value="info">info+</option>
-              <option value="warn">warn+</option>
-              <option value="error">error+</option>
-            </select>
-            <button type="button" class="btn ghost" id="btnClearLogs">Kosongkan</button>
-          </div>
-        </div>
-        <div class="log-viewer" id="logViewer"></div>
-      </section>
-    </template>
-
-    <template id="tpl-settings">
-      <section class="card">
-        <div class="card-head">
-          <h2>Konfigurasi Layanan</h2>
-          <span class="muted">Read-only · edit <code>.env</code> lalu restart</span>
-        </div>
-        <table class="table" id="settingsTable">
-          <thead><tr><th>Kunci</th><th>Nilai</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </section>
-    </template>
-
     <template id="tpl-api">
       <section class="card">
-        <h2>Endpoint Publik untuk ERP</h2>
-        <p class="muted">Semua endpoint <code>/api/*</code> butuh header <code>x-api-key</code>. Dashboard di <code>/dashboard/*</code> tanpa auth (dev only).</p>
+        <h2>Endpoint API</h2>
+        <p class="muted">Gunakan API key dari dashboard untuk autentikasi. Semua endpoint memerlukan header <code>x-api-key</code>.</p>
         <table class="table endpoints">
-          <thead><tr><th>Metode</th><th>Path</th><th>Deskripsi</th></tr></thead>
+          <thead><tr><th>Metode</th><th>Endpoint</th><th>Deskripsi</th></tr></thead>
           <tbody>
-            <tr><td><span class="method get">GET</span></td><td><code>/health</code></td><td>Health check (publik)</td></tr>
-            <tr><td><span class="method get">GET</span></td><td><code>/api/status</code></td><td>Status bot &amp; lifecycle</td></tr>
-            <tr><td><span class="method get">GET</span></td><td><code>/api/qr</code></td><td>QR code untuk auth</td></tr>
-            <tr><td><span class="method post">POST</span></td><td><code>/api/validate-number</code></td><td><code>{ phone }</code> — cek terdaftar WA</td></tr>
+            <tr><td><span class="method get">GET</span></td><td><code>/api/status</code></td><td>Status koneksi WhatsApp</td></tr>
+            <tr><td><span class="method get">GET</span></td><td><code>/api/qr</code></td><td>QR code untuk autentikasi</td></tr>
             <tr><td><span class="method post">POST</span></td><td><code>/api/send</code></td><td><code>{ phone, message }</code> — kirim pesan</td></tr>
-            <tr><td><span class="method post">POST</span></td><td><code>/api/typing</code></td><td><code>{ phone, state }</code> — indikator typing</td></tr>
+            <tr><td><span class="method post">POST</span></td><td><code>/api/validate-number</code></td><td><code>{ phone }</code> — cek nomor terdaftar WA</td></tr>
+            <tr><td><span class="method post">POST</span></td><td><code>/api/typing</code></td><td><code>{ phone, state }</code> — indikator mengetik</td></tr>
           </tbody>
         </table>
       </section>
       <section class="card">
-        <h2>Contoh cURL</h2>
-        <pre class="code-block"><code>curl -X POST &lt;BASE_URL&gt;/api/send \
-  -H "content-type: application/json" \
-  -H "x-api-key: &lt;API_KEY&gt;" \
-  -d '{"phone":"08123456789","message":"Halo"}'</code></pre>
+        <h2>Contoh Integrasi</h2>
+        <pre class="code-block"><code>curl -X POST https://your-domain.com/api/send \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: YOUR_API_KEY" \
+  -d '{"phone":"08123456789","message":"Halo dari ERP"}'</code></pre>
       </section>
     </template>
 
-    <script src="/assets/app.js?v=3" type="module"></script>
+    <script src="/assets/chart.umd.min.js"></script>
+    <script src="/assets/app.js?v=4" type="module"></script>
   </body>
 </html>

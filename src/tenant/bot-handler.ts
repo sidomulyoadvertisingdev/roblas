@@ -8,15 +8,18 @@ import { BackendClient } from './backend-client.js';
 export interface GenericBotHandlerOptions {
   getTenant: (fromWhatsappId: string) => Promise<ResolvedTenant | null>;
   fallbackHandler: IncomingMessageHandler;
+  globalApiKey?: string | undefined;
+  onRecordIncoming?: ((message: IncomingMessage, tenantId: string) => Promise<void>) | undefined;
 }
 
 export interface ParsedIntent {
   intent: string;
   params: Record<string, unknown>;
+  requires_data?: boolean;
 }
 
 const DEFAULT_SYSTEM_PROMPT = `Kamu adalah asisten AI. Return HANYA JSON valid.
-Schema: { "intent": string, "params": {} }
+Schema: { "intent": string, "params": {}, "requires_data": boolean }
 Aturan:
 - Jika user minta bantuan → intent: "help"
 - Jika user ingin lihat menu → intent: "menu"
@@ -30,16 +33,28 @@ export function createGenericBotHandler(
   options: GenericBotHandlerOptions,
 ): IncomingMessageHandler {
   return async (message: IncomingMessage): Promise<void> => {
+    // Resolve tenant first for group behavior check
+    const resolved = await options.getTenant(message.fromWhatsappId);
+
     if (message.isGroup) {
-      return options.fallbackHandler(message);
+      const groupBehavior = resolved?.config.botGroupBehavior ?? 'skip';
+      if (groupBehavior === 'skip') {
+        return options.fallbackHandler(message);
+      }
+      if (groupBehavior === 'forward') {
+        return options.fallbackHandler(message);
+      }
+      // 'reply' — continue to bot processing below
     }
 
-    const resolved = await options.getTenant(message.fromWhatsappId);
     if (!resolved || !resolved.config.botEnabled) {
       return options.fallbackHandler(message);
     }
 
     const { tenant, config, aiConfig } = resolved;
+
+    // Record incoming message with tenant context
+    await options.onRecordIncoming?.(message, tenant.id);
     const lower = message.body.trim().toLowerCase();
 
     logger.info({ event: 'bot_message_received', tenantId: tenant.id, from: message.from, body: message.body.slice(0, 100) }, 'Bot processing message');
@@ -65,7 +80,7 @@ export function createGenericBotHandler(
       }
 
       // Parse intent with AI
-      const provider = createAiProvider(aiConfig, logger);
+      const provider = createAiProvider(aiConfig, logger, options.globalApiKey);
       if (!provider) {
         await reply(config.botUnknownReply);
         return;
@@ -89,6 +104,11 @@ export function createGenericBotHandler(
 
       logger.info({ event: 'bot_intent_parsed', tenantId: tenant.id, intent: parsed.intent }, 'AI parsed intent');
 
+      if (parsed.requires_data === false) {
+        await reply(config.botUnknownReply);
+        return;
+      }
+
       // Handle intents
       if (parsed.intent === 'help' || parsed.intent === 'menu') {
         const greeting = config.botGreeting || `Halo! Selamat datang.`;
@@ -99,9 +119,10 @@ export function createGenericBotHandler(
       // For other intents, try to call backend
       if (config.webhookUrl) {
         const backend = new BackendClient({ config, logger });
-        const response = await backend.fetch('/webhook', {
+        const response = await backend.fetch('', {
           method: 'POST',
           body: {
+            ...parsed.params,
             intent: parsed.intent,
             params: parsed.params,
             message: message.body,
@@ -113,7 +134,9 @@ export function createGenericBotHandler(
         if (response.success && response.data) {
           // Use response template if available
           if (aiConfig.responseTemplate) {
-            const context: Record<string, string | number | boolean | null | undefined> = response.data as Record<string, string | number | boolean | null | undefined>;
+            const context = typeof response.data === 'object' && response.data !== null
+              ? response.data as Record<string, string | number | boolean | null | undefined>
+              : { value: typeof response.data === 'string' ? response.data : JSON.stringify(response.data) };
             const rendered = renderTemplate(aiConfig.responseTemplate, context);
             await reply(rendered);
           } else if (typeof response.data === 'string') {

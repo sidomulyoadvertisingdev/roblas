@@ -2,6 +2,7 @@ import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 
 export interface SendLogEntry {
   id: number;
+  tenantId: string | null;
   agentId: number;
   phoneTo: string;
   messageLength: number;
@@ -13,6 +14,7 @@ export interface SendLogEntry {
 
 interface SendLogRow extends RowDataPacket {
   id: number;
+  tenant_id: string | null;
   agent_id: number;
   phone_to: string;
   message_length: number;
@@ -24,6 +26,7 @@ interface SendLogRow extends RowDataPacket {
 
 const mapRow = (row: SendLogRow): SendLogEntry => ({
   id: row.id,
+  tenantId: row.tenant_id,
   agentId: row.agent_id,
   phoneTo: row.phone_to,
   messageLength: row.message_length,
@@ -34,6 +37,7 @@ const mapRow = (row: SendLogRow): SendLogEntry => ({
 });
 
 export interface RecordSendInput {
+  tenantId?: string | null;
   agentId: number;
   phoneTo: string;
   messageLength: number;
@@ -43,6 +47,7 @@ export interface RecordSendInput {
 }
 
 export interface ListSendOptions {
+  tenantId?: string;
   agentId?: number;
   limit?: number;
   offset?: number;
@@ -55,9 +60,10 @@ export class SendLogRepository {
 
   async record(input: RecordSendInput): Promise<number> {
     const [result] = await this.pool.execute<ResultSetHeader>(
-      `INSERT INTO send_log (agent_id, phone_to, message_length, status, message_id, error)
-       VALUES (:agentId, :phoneTo, :messageLength, :status, :messageId, :error)`,
+      `INSERT INTO send_log (tenant_id, agent_id, phone_to, message_length, status, message_id, error)
+       VALUES (:tenantId, :agentId, :phoneTo, :messageLength, :status, :messageId, :error)`,
       {
+        tenantId: input.tenantId ?? null,
         agentId: input.agentId,
         phoneTo: input.phoneTo,
         messageLength: input.messageLength,
@@ -74,6 +80,7 @@ export class SendLogRepository {
     const offset = Math.max(options.offset ?? 0, 0);
     const clauses: string[] = [];
     const params: Record<string, unknown> = { limit, offset };
+    if (options.tenantId) { clauses.push('tenant_id = :tenantId'); params.tenantId = options.tenantId; }
     if (options.agentId !== undefined) { clauses.push('agent_id = :agentId'); params.agentId = options.agentId; }
     if (options.phone) { clauses.push('phone_to = :phone'); params.phone = options.phone; }
     if (options.status) { clauses.push('status = :status'); params.status = options.status; }
@@ -85,9 +92,12 @@ export class SendLogRepository {
     return rows.map(mapRow);
   }
 
-  async count(agentId?: number): Promise<{ total: number; sent: number; failed: number }> {
-    const where = agentId !== undefined ? 'WHERE agent_id = :agentId' : '';
-    const params = agentId !== undefined ? { agentId } : {};
+  async count(options: { tenantId?: string; agentId?: number } = {}): Promise<{ total: number; sent: number; failed: number }> {
+    const clauses: string[] = [];
+    const params: Record<string, string | number> = {};
+    if (options.tenantId) { clauses.push('tenant_id = :tenantId'); params.tenantId = options.tenantId; }
+    if (options.agentId !== undefined) { clauses.push('agent_id = :agentId'); params.agentId = options.agentId; }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     const [rows] = await this.pool.execute<(RowDataPacket & { status: string; total: number })[]>(
       `SELECT status, COUNT(*) AS total FROM send_log ${where} GROUP BY status`,
       params,

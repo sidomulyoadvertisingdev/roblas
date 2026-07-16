@@ -2,11 +2,14 @@ import type { Pool } from 'mysql2/promise';
 import type { RowDataPacket } from 'mysql2/promise';
 import type { Logger } from '../logger.js';
 import { WhatsAppService } from '../whatsapp/service.js';
-import type { IncomingMessageHandler, WhatsAppGateway } from '../whatsapp/types.js';
+import type { IncomingMessage, IncomingMessageHandler, WhatsAppGateway } from '../whatsapp/types.js';
 import type { TenantWaAccount } from '../tenant/types.js';
-import { createBotHandler } from '../bot/handler.js';
+import { ProductionGateway } from '../tenant/gateway.js';
 import type { TenantResolver, TenantConfigLoader } from '../tenant/index.js';
 import type { SettingsManager } from '../settings/manager.js';
+import { createWebhookForwarder } from '../webhook/forwarder.js';
+import type { WebhookRuntimeConfig } from '../webhook/types.js';
+import type { Repositories } from '../db/index.js';
 
 interface WaAccountRow extends RowDataPacket {
   id: string;
@@ -28,6 +31,8 @@ export interface WhatsAppManagerOptions {
   tenantConfigLoader: TenantConfigLoader;
   settingsManager: SettingsManager;
   fallbackHandler: IncomingMessageHandler;
+  globalApiKey?: string | undefined;
+  repositories?: Repositories | undefined;
 }
 
 export interface ClientEntry {
@@ -49,6 +54,9 @@ export class WhatsAppManager {
   private tenantConfigLoader: TenantConfigLoader;
   private settingsManager: SettingsManager;
   private fallbackHandler: IncomingMessageHandler;
+  private globalApiKey: string | undefined;
+  private repositories: Repositories | undefined;
+  private gateway: ProductionGateway;
 
   constructor(options: WhatsAppManagerOptions) {
     this.pool = options.pool;
@@ -60,6 +68,9 @@ export class WhatsAppManager {
     this.tenantConfigLoader = options.tenantConfigLoader;
     this.settingsManager = options.settingsManager;
     this.fallbackHandler = options.fallbackHandler;
+    this.globalApiKey = options.globalApiKey;
+    this.repositories = options.repositories;
+    this.gateway = new ProductionGateway({ pool: options.pool, logger: options.logger, globalApiKey: options.globalApiKey });
   }
 
   async loadAllClients(): Promise<void> {
@@ -100,41 +111,13 @@ export class WhatsAppManager {
 
     const service = new WhatsAppService({
       clientId: waAccount.clientId,
-      authPath: this.authPath,
+      authPath: waAccount.authSessionPath,
       headless: this.headless,
       ...(this.executablePath ? { executablePath: this.executablePath } : {}),
     }, this.logger);
 
-    // Create bot handler specific to this client
-    const botHandler = createBotHandler(service, this.logger, {
-      groqApiKey: '',
-      groqModel: '',
-      getWebhookConfig: () => this.settingsManager.getWebhookConfig(),
-      getTenantConfig: async (fromWhatsappId) => {
-        const phone = fromWhatsappId.replace(/@.*$/, '');
-        const resolved = await this.tenantResolver.resolveByPhone(phone);
-        if (!resolved) return null;
-
-        const config = await this.tenantConfigLoader.getConfig(resolved.tenant.id);
-        const aiConfig = await this.tenantConfigLoader.getAiConfig(resolved.tenant.id);
-
-        if (!aiConfig.apiKey) return null;
-
-        return {
-          groqApiKey: aiConfig.apiKey,
-          groqModel: aiConfig.model || 'llama-3.1-8b-instant',
-          webhookConfig: {
-            url: config.webhookUrl || this.settingsManager.getWebhookConfig().url,
-            authMode: config.webhookAuthMode,
-            secret: config.webhookSecret || this.settingsManager.getWebhookConfig().secret,
-            bearerToken: config.webhookBearerToken || this.settingsManager.getWebhookConfig().bearerToken,
-            timeoutMs: config.webhookTimeoutMs,
-            allowedSenders: this.settingsManager.getWebhookConfig().allowedSenders,
-            ignoreGroups: config.webhookIgnoreGroups,
-          },
-        };
-      },
-    }, this.fallbackHandler);
+    // Create bot handler specific to this client using production gateway
+    const botHandler = this.createProductionBotHandler(service, waAccount.clientId);
 
     service.replaceMessageHandler(botHandler);
 
@@ -174,6 +157,29 @@ export class WhatsAppManager {
     this.tenantClients.delete(entry.tenantId);
   }
 
+  async disconnectClient(clientId: string): Promise<boolean> {
+    const entry = this.clients.get(clientId);
+    if (!entry) return false;
+
+    this.logger.info({ event: 'wa_manager_disconnecting', clientId }, 'Disconnecting WA client');
+    await entry.service.cleanupSession();
+    return true;
+  }
+
+  async reconnectClient(clientId: string): Promise<boolean> {
+    const entry = this.clients.get(clientId);
+    if (!entry) return false;
+
+    this.logger.info({ event: 'wa_manager_reconnecting', clientId }, 'Reconnecting WA client');
+    try {
+      await entry.service.initialize();
+      return true;
+    } catch (error) {
+      this.logger.error({ err: error, clientId }, 'Failed to reconnect WA client');
+      return false;
+    }
+  }
+
   getClient(clientId: string): WhatsAppGateway | null {
     return this.clients.get(clientId)?.service ?? null;
   }
@@ -209,11 +215,104 @@ export class WhatsAppManager {
 
   async shutdownAll(): Promise<void> {
     this.logger.info({ event: 'wa_manager_shutdown', count: this.clients.size }, 'Shutting down all WA clients');
+    this.gateway.destroy();
     const shutdowns = Array.from(this.clients.values()).map((entry) =>
       entry.service.shutdown().catch(() => undefined),
     );
     await Promise.all(shutdowns);
     this.clients.clear();
     this.tenantClients.clear();
+  }
+
+  getGateway(): ProductionGateway {
+    return this.gateway;
+  }
+
+  private createProductionBotHandler(whatsapp: WhatsAppGateway, clientId: string): IncomingMessageHandler {
+    return async (message: IncomingMessage): Promise<void> => {
+      const resolved = await this.tenantResolver.resolveByClientId(clientId);
+      if (!resolved) {
+        this.logger.debug({ event: 'bot_skip_no_tenant', from: message.from, clientId }, 'No tenant found for client');
+        return;
+      }
+
+      const tenantId = resolved.tenant.id;
+      const config = await this.tenantConfigLoader.getConfig(tenantId);
+      const aiConfig = await this.tenantConfigLoader.getAiConfig(tenantId);
+
+      if (message.isGroup) {
+        const groupBehavior = config.botGroupBehavior ?? 'skip';
+        if (groupBehavior === 'skip' || groupBehavior === 'forward') {
+          return this.createTenantFallback(tenantId)(message);
+        }
+      }
+
+      if (!config.botEnabled) {
+        return this.createTenantFallback(tenantId)(message);
+      }
+
+      await this.gateway.processMessage({
+        tenantId: resolved.tenant.id,
+        tenantName: resolved.tenant.name,
+        plan: resolved.tenant.plan ?? 'free',
+        message,
+        config,
+        aiConfig,
+        whatsapp,
+        onRecordIncoming: this.repositories ? async (msg, tid) => {
+          try {
+            const clientId = this.tenantClients.get(tid);
+            if (clientId) {
+              const agent = await this.repositories!.agents.findByClientId(clientId);
+              if (agent) {
+                await this.repositories!.incomingLog.record({
+                  tenantId: tid,
+                  agentId: agent.id,
+                  waMessageId: msg.messageId,
+                  fromPhone: msg.from,
+                  bodyLength: msg.body?.length ?? 0,
+                  msgType: msg.type ?? 'unknown',
+                  isGroup: msg.isGroup,
+                  hasMedia: msg.hasMedia,
+                  initialStatus: 'pending',
+                });
+              }
+            }
+          } catch (error) {
+            this.logger.error({ err: error, event: 'db_incoming_record_failed', tenantId: tid }, 'Failed to record incoming message');
+          }
+        } : undefined,
+      });
+    };
+  }
+
+  private createTenantFallback(tenantId: string): IncomingMessageHandler {
+    return async (message) => {
+      // In fallback, we don't have the clientId handy, but we have tenantId
+      const resolved = await this.tenantResolver.resolveById(tenantId);
+      if (!resolved) {
+        this.logger.debug({ event: 'webhook_skip_no_tenant', from: message.from, tenantId }, 'No tenant webhook configured');
+        return;
+      }
+
+      const config = await this.tenantConfigLoader.getConfig(resolved.id);
+      if (!config.webhookUrl) {
+        this.logger.debug({ event: 'webhook_skip_no_url', from: message.from, tenantId }, 'Tenant has no webhook URL');
+        return;
+      }
+
+      const forwarder = createWebhookForwarder({
+        getConfig: (): WebhookRuntimeConfig => ({
+          url: config.webhookUrl,
+          authMode: config.webhookAuthMode,
+          secret: config.webhookSecret,
+          bearerToken: config.webhookBearerToken,
+          timeoutMs: config.webhookTimeoutMs,
+          allowedSenders: [],
+          ignoreGroups: config.webhookIgnoreGroups,
+        }),
+      }, this.logger);
+      await forwarder(message);
+    };
   }
 }

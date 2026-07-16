@@ -8,3 +8,8 @@ export { renderTemplate, buildButtonsFromConfig, formatDate, formatCurrency, pct
 export { BackendClient } from './backend-client.js';
 export { createGenericBotHandler } from './bot-handler.js';
 export { createTenantRoutes } from './routes.js';
+export { ProductionGateway } from './gateway.js';
+export { TenantRateLimiter } from './rate-limiter.js';
+export { UsageMeter } from './usage-meter.js';
+export { withRetry } from './retry.js';
+export { encrypt, decrypt, isEncrypted } from './encryption.js';

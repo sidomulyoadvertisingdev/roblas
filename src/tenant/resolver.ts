@@ -1,6 +1,7 @@
+import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 import type { Logger } from '../logger.js';
-import type { Tenant, TenantWaAccount } from './types.js';
+import type { Tenant, TenantApiKey, TenantWaAccount } from './types.js';
 
 interface TenantRow extends RowDataPacket {
   id: string;
@@ -171,7 +172,7 @@ export class TenantResolver {
   }
 
   async createTenant(data: { name: string; slug: string; plan: 'free' | 'pro' | 'enterprise' | undefined }): Promise<Tenant> {
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     await this.pool.execute(
       `INSERT INTO tenants (id, name, slug, plan) VALUES (?, ?, ?, ?)`,
       [id, data.name, data.slug, data.plan || 'free'],
@@ -194,7 +195,7 @@ export class TenantResolver {
     phone: string;
     displayName?: string | undefined;
   }): Promise<TenantWaAccount> {
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     const authSessionPath = `./data/auth/session-${data.clientId}`;
     await this.pool.execute(
       `INSERT INTO tenant_wa_accounts (id, tenant_id, client_id, phone, display_name, auth_session_path) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -211,5 +212,119 @@ export class TenantResolver {
       authSessionPath,
       lastReadyAt: null,
     };
+  }
+
+  async updateTenant(id: string, data: { name?: string; slug?: string; plan?: 'free' | 'pro' | 'enterprise'; isActive?: boolean }): Promise<Tenant | null> {
+    const sets: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (data.name !== undefined) { sets.push('name = ?'); params.push(data.name); }
+    if (data.slug !== undefined) { sets.push('slug = ?'); params.push(data.slug); }
+    if (data.plan !== undefined) { sets.push('plan = ?'); params.push(data.plan); }
+    if (data.isActive !== undefined) { sets.push('is_active = ?'); params.push(data.isActive ? 1 : 0); }
+
+    if (sets.length === 0) return this.resolveById(id);
+
+    params.push(id);
+    await this.pool.execute(`UPDATE tenants SET ${sets.join(', ')} WHERE id = ?`, params);
+
+    this.phoneCache.clear();
+    this.apiKeyCache.clear();
+
+    return this.resolveById(id);
+  }
+
+  async deleteTenant(id: string): Promise<boolean> {
+    const [result] = await this.pool.execute(`DELETE FROM tenants WHERE id = ?`, [id]);
+    const affected = (result as { affectedRows: number }).affectedRows;
+
+    this.phoneCache.clear();
+    this.apiKeyCache.clear();
+
+    return affected > 0;
+  }
+
+  async resolveById(id: string): Promise<Tenant | null> {
+    const [rows] = await this.pool.execute<TenantRow[]>(
+      `SELECT * FROM tenants WHERE id = ? LIMIT 1`,
+      [id],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return this.mapTenantRow(row);
+  }
+
+  async createApiKey(tenantId: string, permissions: string[] = ['send', 'read'], expiresAt?: Date | null): Promise<{ apiKey: TenantApiKey; plainKey: string }> {
+    const id = randomUUID();
+    const plainKey = `sk_live_${randomBytes(24).toString('hex')}`;
+    const keyHash = createHash('sha256').update(plainKey).digest('hex');
+    const keyPrefix = plainKey.slice(0, 12) + '...';
+
+    await this.pool.execute(
+      `INSERT INTO tenant_api_keys (id, tenant_id, key_hash, key_prefix, permissions, expires_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      [id, tenantId, keyHash, keyPrefix, JSON.stringify(permissions), expiresAt || null],
+    );
+
+    const apiKey: TenantApiKey = {
+      id,
+      tenantId,
+      keyHash,
+      keyPrefix,
+      permissions,
+      expiresAt: expiresAt || null,
+      isActive: true,
+    };
+
+    return { apiKey, plainKey };
+  }
+
+  async listApiKeys(tenantId: string): Promise<TenantApiKey[]> {
+    interface ApiKeyRow extends RowDataPacket {
+      id: string;
+      tenant_id: string;
+      key_hash: string;
+      key_prefix: string;
+      permissions: string | null;
+      expires_at: Date | null;
+      is_active: number;
+      created_at: Date;
+    }
+
+    const [rows] = await this.pool.execute<ApiKeyRow[]>(
+      `SELECT * FROM tenant_api_keys WHERE tenant_id = ? ORDER BY created_at DESC`,
+      [tenantId],
+    );
+
+    return rows.map((row) => ({
+      id: row.id,
+      tenantId: row.tenant_id,
+      keyHash: row.key_hash,
+      keyPrefix: row.key_prefix,
+      permissions: row.permissions ? JSON.parse(row.permissions) as string[] : [],
+      expiresAt: row.expires_at,
+      isActive: row.is_active === 1,
+    }));
+  }
+
+  async revokeApiKey(keyId: string): Promise<boolean> {
+    const [result] = await this.pool.execute(
+      `UPDATE tenant_api_keys SET is_active = 0 WHERE id = ?`,
+      [keyId],
+    );
+    const affected = (result as { affectedRows: number }).affectedRows;
+    this.apiKeyCache.clear();
+    return affected > 0;
+  }
+
+  async rotateApiKey(keyId: string): Promise<{ apiKey: TenantApiKey; plainKey: string } | null> {
+    const [rows] = await this.pool.execute<RowDataPacket[] & { tenant_id: string }[]>(
+      `SELECT tenant_id FROM tenant_api_keys WHERE id = ? AND is_active = 1`,
+      [keyId],
+    );
+    const row = rows[0];
+    if (!row) return null;
+
+    await this.revokeApiKey(keyId);
+    return this.createApiKey(row.tenant_id);
   }
 }

@@ -1,9 +1,11 @@
 import type { Logger } from '../logger.js';
 import type { TenantConfig } from './types.js';
 
+const MAX_RESPONSE_BYTES = 1024 * 1024;
+
 export interface BackendResponse {
   success: boolean;
-  data: Record<string, unknown> | null;
+  data: unknown;
   error?: string;
 }
 
@@ -21,7 +23,7 @@ export class BackendClient {
     this.logger = options.logger;
   }
 
-  async fetch(path: string, options?: {
+  async fetch(path = '', options?: {
     method?: string;
     body?: Record<string, unknown>;
     queryParams?: Record<string, string>;
@@ -30,7 +32,11 @@ export class BackendClient {
       return { success: false, data: null, error: 'No webhook URL configured' };
     }
 
-    const url = new URL(path, this.config.webhookUrl);
+    // An empty path means "call the tenant webhook exactly as configured".
+    // Explicit paths remain available for auxiliary endpoints such as /health.
+    const url = path ? new URL(path, this.config.webhookUrl) : new URL(this.config.webhookUrl);
+    const urlError = await validateWebhookUrl(url);
+    if (urlError) return { success: false, data: null, error: urlError };
     if (options?.queryParams) {
       for (const [key, value] of Object.entries(options.queryParams)) {
         url.searchParams.set(key, value);
@@ -67,11 +73,20 @@ export class BackendClient {
 
       if (!response.ok) {
         const text = await response.text();
-        this.logger.error({ event: 'backend_error', status: response.status, body: text.slice(0, 200) }, 'Backend request failed');
+        this.logger.error({ event: 'backend_error', status: response.status, responseBytes: Buffer.byteLength(text) }, 'Backend request failed');
         return { success: false, data: null, error: `HTTP ${response.status}` };
       }
 
-      const data = await response.json() as Record<string, unknown>;
+      const contentLength = Number(response.headers?.get?.('content-length') ?? 0);
+      if (contentLength > MAX_RESPONSE_BYTES) {
+        return { success: false, data: null, error: 'Webhook response is too large' };
+      }
+
+      const text = typeof response.text === 'function' ? await response.text() : null;
+      if (text !== null && Buffer.byteLength(text) > MAX_RESPONSE_BYTES) {
+        return { success: false, data: null, error: 'Webhook response is too large' };
+      }
+      const data = text !== null ? parseResponseBody(text) : await response.json() as unknown;
       return { success: true, data };
     } catch (error) {
       clearTimeout(timeout);
@@ -85,6 +100,7 @@ export class BackendClient {
 
     try {
       const url = new URL('/health', this.config.webhookUrl);
+      if (await validateWebhookUrl(url)) return false;
       const response = await fetch(url.toString(), {
         method: 'GET',
         signal: AbortSignal.timeout(5000),
@@ -93,5 +109,46 @@ export class BackendClient {
     } catch {
       return false;
     }
+  }
+}
+
+async function validateWebhookUrl(url: URL): Promise<string | null> {
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return 'Webhook URL must use HTTP or HTTPS';
+  if (process.env.NODE_ENV !== 'production') return null;
+  if (url.protocol !== 'https:') return 'Webhook URL must use HTTPS in production';
+
+  const hostname = url.hostname.toLowerCase();
+  if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === 'metadata.google.internal') {
+    return 'Webhook URL points to a restricted host';
+  }
+
+  try {
+    const { lookup } = await import('node:dns/promises');
+    const addresses = await lookup(hostname, { all: true });
+    if (addresses.some(({ address }) => isPrivateAddress(address))) {
+      return 'Webhook URL resolves to a private or restricted address';
+    }
+  } catch {
+    return 'Webhook hostname could not be resolved safely';
+  }
+  return null;
+}
+
+function isPrivateAddress(address: string): boolean {
+  const normalized = address.toLowerCase();
+  if (normalized === '::1' || normalized === '::' || normalized.startsWith('fc') || normalized.startsWith('fd') || normalized.startsWith('fe8') || normalized.startsWith('fe9') || normalized.startsWith('fea') || normalized.startsWith('feb')) return true;
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(normalized);
+  if (!match) return false;
+  const first = Number(match[1]);
+  const second = Number(match[2]);
+  return first === 0 || first === 10 || first === 127 || first >= 224 || (first === 169 && second === 254) || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168) || (first === 100 && second >= 64 && second <= 127);
+}
+
+function parseResponseBody(body: string): unknown {
+  if (!body.trim()) return null;
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    return body;
   }
 }

@@ -26,6 +26,8 @@ export interface TenantConfig {
   webhookBearerToken: string | null;
   webhookTimeoutMs: number;
   webhookIgnoreGroups: boolean;
+  webhookAllowedSenders: string[];
+  webhookDiscoveredProfile: Record<string, unknown> | null;
   botEnabled: boolean;
   botTriggerKeywords: string[];
   botGreeting: string | null;
@@ -40,7 +42,10 @@ export interface TenantAiConfig {
   apiKey: string | null;
   model: string;
   systemPrompt: string | null;
+  businessKnowledge: string | null;
+  webhookSchema: Record<string, unknown> | null;
   responseTemplate: string | null;
+  responseInstructions: string | null;
   maxTokens: number;
 }
 
@@ -68,6 +73,8 @@ export const DEFAULT_TENANT_CONFIG: TenantConfig = {
   webhookBearerToken: null,
   webhookTimeoutMs: 8000,
   webhookIgnoreGroups: true,
+  webhookAllowedSenders: [],
+  webhookDiscoveredProfile: null,
   botEnabled: false,
   botTriggerKeywords: [],
   botGreeting: null,
@@ -82,6 +89,9 @@ export const DEFAULT_AI_CONFIG: TenantAiConfig = {
   apiKey: null,
   model: 'llama-3.1-8b-instant',
   systemPrompt: null,
+  businessKnowledge: null,
+  webhookSchema: null,
   responseTemplate: null,
+  responseInstructions: null,
   maxTokens: 256,
 };

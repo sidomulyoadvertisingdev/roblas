@@ -1,5 +1,6 @@
 const API = '/dashboard';
-const state = { config: null, status: null, health: null, qr: null, history: [] };
+const state = { config: null, status: null, health: null, qr: null, history: [], analytics: null };
+let sendChart = null;
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -53,6 +54,13 @@ const fmtDateTime = (iso) => {
   } catch { return '—'; }
 };
 
+const fmtDate = (iso) => {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
+  } catch { return '—'; }
+};
+
 const applyStatePill = (s) => {
   const pill = $('#statePill');
   pill.classList.remove('ready', 'pending', 'error');
@@ -64,20 +72,20 @@ const applyStatePill = (s) => {
 
 const refreshData = async () => {
   try {
-    const [statusRes, healthRes, qrRes, historyRes] = await Promise.all([
+    const [statusRes, healthRes, qrRes, historyRes, analyticsRes] = await Promise.all([
       request('/status'),
       fetch('/health').then((r) => r.json()).catch(() => null),
       request('/qr'),
       request('/send-history'),
+      request('/analytics'),
     ]);
     if (statusRes.ok) state.status = statusRes.body.data;
     if (healthRes) state.health = healthRes.data;
     if (qrRes.ok) state.qr = qrRes.body.data;
     if (historyRes.ok) state.history = historyRes.body.data;
+    if (analyticsRes.ok) state.analytics = analyticsRes.body.data;
 
     if (state.status) applyStatePill(state.status);
-    const phone = state.status?.account?.id?.split('@')[0] ?? '';
-    setText('botIdentity', phone || state.status?.expectedBotPhone || 'bot');
     const tag = $('#botTag');
     if (tag) {
       tag.textContent = state.status?.ready ? 'ready' : (state.status?.state ?? 'idle');
@@ -102,17 +110,24 @@ const loadConfig = async () => {
 /* ===== Router ===== */
 
 const routes = {
-  overview: { title: 'Ringkasan', subtitle: 'Status koneksi WhatsApp gateway', render: renderOverview, refresh: renderOverview },
+  overview: { title: 'Ringkasan', subtitle: 'Status koneksi dan analitik WhatsApp', render: renderOverview, refresh: renderOverview },
   send: { title: 'Kirim Pesan', subtitle: 'Kirim pesan WhatsApp langsung dari dashboard', render: renderSend },
-  history: { title: 'Riwayat Terkirim', subtitle: 'Log semua pesan yang dikirim melalui gateway', render: renderHistory, refresh: renderHistory },
-  contacts: { title: 'Validasi Nomor', subtitle: 'Cek nomor terdaftar WhatsApp & whitelist', render: renderContacts },
+  history: { title: 'Riwayat Terkirim', subtitle: 'Semua pesan yang telah dikirim', render: renderHistory, refresh: renderHistory },
+  contacts: { title: 'Validasi Nomor', subtitle: 'Cek apakah nomor terdaftar di WhatsApp', render: renderContacts },
   webhook: { title: 'Webhook', subtitle: 'Konfigurasi forward pesan masuk ke ERP', render: renderWebhook },
-  logs: { title: 'Log Live', subtitle: 'Streaming log server real-time', render: renderLogs },
-  settings: { title: 'Pengaturan', subtitle: 'Konfigurasi environment layanan', render: renderSettings },
-  api: { title: 'Dokumentasi API', subtitle: 'Endpoint yang dikonsumsi ERP', render: renderApi },
+  api: { title: 'Dokumentasi API', subtitle: 'Endpoint untuk integrasi ERP', render: renderApi },
 };
 
-const getRoute = () => (location.hash.replace('#/', '') || 'overview');
+const getRoute = () => {
+  const path = location.pathname.replace(/^\//, '').replace(/\/$/, '');
+  return path || 'overview';
+};
+
+const navigate = (name) => {
+  if (getRoute() === name) return;
+  history.pushState(null, '', `/${name === 'overview' ? '' : name}`);
+  renderCurrentRoute();
+};
 
 const setActiveMenu = (name) => {
   $$('#menu a').forEach((a) => a.classList.toggle('active', a.dataset.route === name));
@@ -142,71 +157,171 @@ function renderOverview(root) {
     setText(
       'statBotMatch',
       s.expectedBotPhone === null
-        ? 'expected: tidak diset'
+        ? ''
         : s.botPhoneMatches
-          ? `expected: ${s.expectedBotPhone} ✓`
-          : `expected: ${s.expectedBotPhone} ✗`,
+          ? `${s.expectedBotPhone} ✓`
+          : `${s.expectedBotPhone} ✗`,
       root,
     );
     setText('statUpdated', s.updatedAt ? fmtTime(s.updatedAt) : '—', root);
   }
   setText('statUptime', state.health?.uptimeSeconds ? fmtUptime(state.health.uptimeSeconds) : '—', root);
 
-  const env = state.config?.env ?? {};
-  const runtimeWebhook = state.config?.runtime?.webhook ?? null;
-  const webhookOn = Boolean(runtimeWebhook?.url ?? env.WEBHOOK_URL);
-  const allowedSenders = runtimeWebhook?.allowedSenders?.length
-    ? runtimeWebhook.allowedSenders.length
-    : env.WEBHOOK_ALLOWED_SENDERS
-      ? env.WEBHOOK_ALLOWED_SENDERS.split(',').filter(Boolean).length
-      : 0;
-  const ignoreGroups = runtimeWebhook?.ignoreGroups ?? env.WEBHOOK_IGNORE_GROUPS;
-  setText('statWebhook', webhookOn ? 'Aktif' : 'Nonaktif', root);
-  setText(
-    'statWebhookMode',
-    webhookOn
-      ? `${allowedSenders > 0 ? `${allowedSenders} whitelist` : '⚠ terbuka'} · groups=${ignoreGroups ? 'skip' : 'terima'}`
-      : 'Belum dikonfigurasi',
-    root,
-  );
-
-  setText('quickPublicUrl', location.origin, root);
-  setText('quickClient', env.WA_CLIENT_ID ?? '—', root);
-  setText('quickRate', `${env.SEND_RATE_LIMIT_MAX ?? '—'} / menit`, root);
-  setText('quickExpected', env.WA_BOT_PHONE ?? '(tidak diset)', root);
-
-  const qrCard = root.querySelector('#qrCard');
-  const qrHost = root.querySelector('#qrHost');
-  if (state.qr?.qr) {
-    qrCard.classList.remove('hidden');
-    qrHost.innerHTML = '';
-    const img = document.createElement('img');
-    img.width = 220; img.height = 220;
-    img.alt = 'WhatsApp QR';
-    img.src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(state.qr.qr)}`;
-    qrHost.appendChild(img);
-  } else {
-    qrCard.classList.add('hidden');
+  // Analytics metrics
+  const a = state.analytics;
+  if (a) {
+    setText('statTodayTotal', a.today.total, root);
+    setText('statTodayTime', 'hari ini', root);
+    setText('statTodaySuccess', a.today.success, root);
+    setText('statSuccessRate', a.today.total > 0 ? `${Math.round((a.today.success / a.today.total) * 100)}%` : '—', root);
+    setText('statTodayFailed', a.today.failed, root);
+    setText('statFailedRate', a.today.total > 0 ? `${Math.round((a.today.failed / a.today.total) * 100)}%` : '—', root);
+    setText('statAllTime', a.allTime, root);
   }
 
-  const mini = root.querySelector('#miniHistory');
-  const recent = [...state.history].slice(-5).reverse();
-  if (recent.length === 0) {
-    mini.innerHTML = '<p class="muted empty">Belum ada pesan yang dikirim.</p>';
-  } else {
-    mini.innerHTML = '';
-    for (const entry of recent) {
-      const div = document.createElement('div');
-      div.className = `item${entry.ok ? '' : ' err'}`;
-      div.innerHTML = `
-        <span class="dot-status"></span>
-        <div class="info">
-          <div class="phone">${entry.phone}</div>
-          <div class="preview">${entry.message.replace(/</g, '&lt;')}</div>
-        </div>
-        <span class="time">${fmtTime(entry.time)}</span>`;
-      mini.appendChild(div);
+  // QR / WA connection card
+  const qrCard = root.querySelector('#qrCard');
+  const qrHost = root.querySelector('#qrHost');
+  const btnDisconnect = root.querySelector('#btnDisconnect');
+  const btnReconnect = root.querySelector('#btnReconnect');
+  const waCardTitle = root.querySelector('#waCardTitle');
+  const waCardHint = root.querySelector('#waCardHint');
+  if (qrCard) {
+    const needsQr = s && !s.ready && (s.state === 'qr_pending' || s.state === 'auth_failure' || s.state === 'disconnected' || s.state === 'error' || s.state === 'stopped');
+    const isReady = s && s.ready;
+
+    if (needsQr || isReady) {
+      qrCard.classList.remove('hidden');
+    } else {
+      qrCard.classList.add('hidden');
     }
+
+    if (qrHost) {
+      qrHost.innerHTML = '';
+      if (state.qr?.qr) {
+        const img = document.createElement('img');
+        img.width = 220; img.height = 220;
+        img.alt = 'WhatsApp QR';
+        img.src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(state.qr.qr)}`;
+        qrHost.appendChild(img);
+      } else if (needsQr) {
+        qrHost.innerHTML = '<p class="muted">Menunggu QR code...</p>';
+      }
+    }
+
+    if (waCardTitle && waCardHint) {
+      if (isReady) {
+        waCardTitle.textContent = 'WhatsApp Terhubung';
+        waCardHint.textContent = `Terhubung sebagai ${s.account?.id?.split('@')[0] ?? '—'}.`;
+      } else if (s.state === 'qr_pending') {
+        waCardTitle.textContent = 'Perlu Scan QR';
+        waCardHint.innerHTML = 'Buka WhatsApp → <b>Setelan</b> → <b>Perangkat tertaut</b> → <b>Tautkan perangkat</b>.';
+      } else if (s.state === 'auth_failure') {
+        waCardTitle.textContent = 'Koneksi Gagal';
+        waCardHint.textContent = 'Sesi tidak valid. Klik "Sambungkan Ulang" untuk QR baru.';
+      } else if (s.state === 'disconnected') {
+        waCardTitle.textContent = 'Terputus';
+        waCardHint.textContent = 'WhatsApp terputus. Klik "Sambungkan Ulang".';
+      } else {
+        waCardTitle.textContent = 'Menunggu Koneksi';
+        waCardHint.textContent = 'WhatsApp belum terhubung.';
+      }
+    }
+
+    if (btnDisconnect && btnReconnect) {
+      if (isReady) {
+        btnDisconnect.classList.remove('hidden');
+        btnReconnect.classList.add('hidden');
+      } else {
+        btnDisconnect.classList.add('hidden');
+        btnReconnect.classList.remove('hidden');
+      }
+    }
+  }
+
+  // Chart
+  const canvas = root.querySelector('#chartSendVolume');
+  if (canvas && a?.last7days) {
+    const labels = a.last7days.map((d) => fmtDate(d.day));
+    const successData = a.last7days.map((d) => d.success);
+    const failedData = a.last7days.map((d) => d.failed);
+
+    if (sendChart) sendChart.destroy();
+    sendChart = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Berhasil', data: successData, backgroundColor: 'rgba(22,163,74,0.7)', borderRadius: 4 },
+          { label: 'Gagal', data: failedData, backgroundColor: 'rgba(220,38,38,0.7)', borderRadius: 4 },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } } },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+          y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 11 } } },
+        },
+      },
+    });
+  }
+
+  // Mini history
+  const mini = root.querySelector('#miniHistory');
+  if (mini) {
+    const recent = [...state.history].slice(-5).reverse();
+    if (recent.length === 0) {
+      mini.innerHTML = '<p class="muted empty">Belum ada pesan.</p>';
+    } else {
+      mini.innerHTML = '';
+      for (const entry of recent) {
+        const div = document.createElement('div');
+        div.className = `item${entry.ok ? '' : ' err'}`;
+        div.innerHTML = `
+          <span class="dot-status"></span>
+          <div class="info">
+            <div class="phone">${entry.phone}</div>
+            <div class="preview">${(entry.message ?? '').slice(0, 60).replace(/</g, '&lt;')}</div>
+          </div>
+          <span class="time">${fmtTime(entry.time)}</span>`;
+        mini.appendChild(div);
+      }
+    }
+  }
+
+  // Disconnect / Reconnect buttons
+  if (btnDisconnect) {
+    btnDisconnect.onclick = async () => {
+      if (!confirm('Putuskan koneksi WhatsApp? Anda perlu scan QR lagi untuk menyambungkan.')) return;
+      btnDisconnect.disabled = true;
+      btnDisconnect.textContent = 'Memutuskan...';
+      const res = await request('/disconnect', { method: 'POST' });
+      if (res.ok) {
+        toast('WhatsApp diputuskan', 'ok');
+        await refreshData();
+      } else {
+        toast(res.body.error?.message ?? 'Gagal memutuskan', 'err');
+      }
+      btnDisconnect.disabled = false;
+      btnDisconnect.textContent = 'Putuskan Koneksi';
+    };
+  }
+  if (btnReconnect) {
+    btnReconnect.onclick = async () => {
+      btnReconnect.disabled = true;
+      btnReconnect.textContent = 'Menyambungkan...';
+      const res = await request('/reconnect', { method: 'POST' });
+      if (res.ok) {
+        toast('Menyambungkan WhatsApp... tunggu QR code', 'ok');
+        await refreshData();
+      } else {
+        toast(res.body.error?.message ?? 'Gagal menyambungkan', 'err');
+      }
+      btnReconnect.disabled = false;
+      btnReconnect.textContent = 'Sambungkan Ulang';
+    };
   }
 }
 
@@ -226,10 +341,10 @@ function renderSend(root) {
   });
 
   root.querySelector('#btnQuickTest').addEventListener('click', () => {
-    const bot = state.status?.expectedBotPhone ?? state.status?.account?.id?.split('@')[0];
-    if (!bot) return toast('Nomor bot belum diketahui', 'err');
-    form.phone.value = bot;
-    form.message.value = 'Test kirim ke diri sendiri dari dashboard 🟡';
+    const phone = state.status?.account?.id?.split('@')[0];
+    if (!phone) return toast('Nomor WhatsApp belum diketahui', 'err');
+    form.phone.value = phone;
+    form.message.value = 'Test kirim dari dashboard';
   });
 
   const typing = root.querySelector('#typingForm');
@@ -245,24 +360,41 @@ function renderSend(root) {
   });
 }
 
+let historyFilterValue = 'all';
+
 function renderHistory(root) {
   const tbody = root.querySelector('#historyTable tbody');
-  tbody.innerHTML = '';
-  const list = [...state.history].reverse();
-  if (list.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="muted center">Belum ada data.</td></tr>';
-    return;
+  const filterSelect = root.querySelector('#historyFilter');
+
+  const renderTable = () => {
+    tbody.innerHTML = '';
+    let list = [...state.history].reverse();
+    if (historyFilterValue === 'success') list = list.filter((e) => e.ok);
+    else if (historyFilterValue === 'failed') list = list.filter((e) => !e.ok);
+
+    if (list.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="muted center">Belum ada data.</td></tr>';
+      return;
+    }
+    for (const entry of list) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${fmtDateTime(entry.time)}</td>
+        <td><code>${entry.phone}</code></td>
+        <td>${(entry.message ?? '').slice(0, 80).replace(/</g, '&lt;')}${entry.message && entry.message.length > 80 ? '…' : ''}</td>
+        <td>${entry.ok ? '<span class="badge ok">berhasil</span>' : `<span class="badge err" title="${entry.error ?? ''}">gagal</span>`}</td>`;
+      tbody.appendChild(tr);
+    }
+  };
+
+  if (filterSelect) {
+    filterSelect.value = historyFilterValue;
+    filterSelect.addEventListener('change', () => {
+      historyFilterValue = filterSelect.value;
+      renderTable();
+    });
   }
-  for (const entry of list) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${fmtDateTime(entry.time)}</td>
-      <td><code>${entry.phone}</code></td>
-      <td>${(entry.message ?? '').slice(0, 80).replace(/</g, '&lt;')}${entry.message && entry.message.length > 80 ? '…' : ''}</td>
-      <td>${entry.ok ? '<span class="badge ok">terkirim</span>' : `<span class="badge err" title="${entry.error ?? ''}">gagal</span>`}</td>
-      <td><code>${entry.messageId ?? '—'}</code></td>`;
-    tbody.appendChild(tr);
-  }
+  renderTable();
 }
 
 function renderContacts(root) {
@@ -285,14 +417,6 @@ function renderContacts(root) {
       result.textContent = res.body.error?.message ?? 'Gagal validasi';
     }
   });
-
-  const box = root.querySelector('#whitelistBox');
-  const allowed = (state.config?.env?.WEBHOOK_ALLOWED_SENDERS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  if (allowed.length === 0) {
-    box.innerHTML = '<span class="chip empty">Kosong — semua nomor diizinkan (tidak aman)</span>';
-  } else {
-    box.innerHTML = allowed.map((n) => `<span class="chip">${n}</span>`).join('');
-  }
 }
 
 function renderWebhook(root) {
@@ -305,35 +429,35 @@ function renderWebhook(root) {
   const applyMode = (mode) => {
     secretField.classList.toggle('hidden', mode !== 'hmac');
     bearerField.classList.toggle('hidden', mode !== 'bearer');
-    if (mode === 'hmac') authHint.textContent = 'ERP hitung ulang HMAC dari body + secret, bandingkan dengan header x-wa-signature.';
-    else if (mode === 'bearer') authHint.textContent = 'Token dikirim di header Authorization: Bearer <token>. Cocok untuk Laravel Sanctum, JWT, API key custom.';
-    else authHint.textContent = '⚠ Tanpa auth — ERP menerima payload apa adanya. Hanya untuk testing.';
+    if (mode === 'hmac') authHint.textContent = 'ERP menghitung HMAC dari body + secret, membandingkan dengan header x-wa-signature.';
+    else if (mode === 'bearer') authHint.textContent = 'Token dikirim di header Authorization: Bearer <token>.';
+    else authHint.textContent = 'Tanpa autentikasi — ERP menerima payload apa adanya.';
   };
 
   const populate = (data) => {
     const w = data.webhook ?? {};
-    const modeLabels = { hmac: 'HMAC signature', bearer: 'Bearer token', none: 'Tanpa auth' };
+    const modeLabels = { hmac: 'HMAC Signature', bearer: 'Bearer Token', none: 'Tanpa Auth' };
     setText('whUrl', w.url ?? '(belum diset)', root);
     setText('whAuthMode', modeLabels[w.authMode] ?? '—', root);
     setText('whSecret', w.hasSecret ? '••••••• (aktif)' : '(belum diset)', root);
     setText('whBearer', w.hasBearerToken ? '••••••• (aktif)' : '(belum diset)', root);
     setText('whTimeout', w.timeoutMs ? `${w.timeoutMs} ms` : '—', root);
-    setText('whGroups', w.ignoreGroups ? 'diabaikan' : 'diterima', root);
-    setText('whAllowed', w.allowedSenders?.length ? w.allowedSenders.join(', ') : '(kosong — terbuka)', root);
+    setText('whGroups', w.ignoreGroups ? 'Diatasi' : 'Diterima', root);
+    setText('whAllowed', w.allowedSenders?.length ? w.allowedSenders.join(', ') : '(semua nomor)', root);
     form.url.value = w.url ?? '';
     form.timeoutMs.value = w.timeoutMs ?? '';
     form.ignoreGroups.checked = Boolean(w.ignoreGroups);
     form.allowedSenders.value = (w.allowedSenders ?? []).join(', ');
     form.secret.value = '';
-    form.bearerToken.value = '';
+    form.bearerToken.value = w.bearerToken ?? '';
     authSelect.value = w.authMode ?? 'none';
     applyMode(authSelect.value);
     root.querySelector('#secretHint').textContent = w.hasSecret
-      ? 'Secret tersimpan. Kosongkan untuk tetap gunakan yang aktif; isi baru untuk mengganti.'
-      : 'Minimal 16 karakter. Wajib untuk verifikasi HMAC di sisi ERP.';
+      ? 'Secret tersimpan. Kosongkan untuk tetap gunakan yang aktif.'
+      : 'Minimal 16 karakter. Untuk verifikasi HMAC.';
     root.querySelector('#bearerHint').textContent = w.hasBearerToken
-      ? 'Token tersimpan. Kosongkan untuk tetap gunakan yang aktif; isi baru untuk mengganti.'
-      : 'Contoh Laravel Sanctum: 1606|hgRLAZM... Akan dikirim sebagai Authorization: Bearer <token>.';
+      ? 'Token tersimpan. Kosongkan untuk tetap gunakan yang aktif.'
+      : 'Token akan dikirim di header Authorization.';
   };
 
   const load = async () => {
@@ -343,6 +467,14 @@ function renderWebhook(root) {
   };
 
   authSelect.addEventListener('change', () => applyMode(authSelect.value));
+
+  root.querySelector('#btnToggleBearer').addEventListener('click', (event) => {
+    const input = form.bearerToken;
+    const showing = input.type === 'text';
+    input.type = showing ? 'password' : 'text';
+    event.currentTarget.textContent = showing ? 'Tampilkan' : 'Sembunyikan';
+    event.currentTarget.setAttribute('aria-label', showing ? 'Tampilkan Bearer Token' : 'Sembunyikan Bearer Token');
+  });
 
   root.querySelector('#btnGenSecret').addEventListener('click', async () => {
     const res = await request('/settings/webhook/generate-secret', { method: 'POST' });
@@ -356,17 +488,17 @@ function renderWebhook(root) {
   });
 
   root.querySelector('#btnClearSecret').addEventListener('click', async () => {
-    if (!confirm('Hapus secret HMAC? Verifikasi HMAC akan dinonaktifkan.')) return;
+    if (!confirm('Hapus secret HMAC?')) return;
     const res = await request('/settings/webhook', { method: 'PUT', body: JSON.stringify({ clearSecret: true }) });
     if (res.ok) { toast('Secret dihapus', 'ok'); load(); }
-    else toast(res.body.error?.message ?? 'Gagal hapus secret', 'err');
+    else toast(res.body.error?.message ?? 'Gagal', 'err');
   });
 
   root.querySelector('#btnClearBearer').addEventListener('click', async () => {
     if (!confirm('Hapus Bearer token?')) return;
     const res = await request('/settings/webhook', { method: 'PUT', body: JSON.stringify({ clearBearerToken: true }) });
     if (res.ok) { toast('Bearer token dihapus', 'ok'); load(); }
-    else toast(res.body.error?.message ?? 'Gagal hapus token', 'err');
+    else toast(res.body.error?.message ?? 'Gagal', 'err');
   });
 
   form.addEventListener('submit', async (e) => {
@@ -388,89 +520,93 @@ function renderWebhook(root) {
     const bearer = (data.get('bearerToken') ?? '').toString().trim();
     if (bearer) payload.bearerToken = bearer;
     const res = await request('/settings/webhook', { method: 'PUT', body: JSON.stringify(payload) });
-    if (res.ok) { toast('Setting webhook disimpan', 'ok'); load(); }
+    if (res.ok) { toast('Webhook disimpan', 'ok'); load(); }
     else toast(res.body.error?.message ?? 'Gagal menyimpan', 'err');
   });
 
   load();
 }
 
-let logStream = null;
-let logFilter = 'all';
-
-function renderLogs(root) {
-  const viewer = root.querySelector('#logViewer');
-  const autoscroll = root.querySelector('#logAutoscroll');
-  const filter = root.querySelector('#logFilter');
-  const clearBtn = root.querySelector('#btnClearLogs');
-
-  const levelOrder = { trace: 0, debug: 1, info: 2, warn: 3, error: 4, fatal: 5 };
-  const passesFilter = (lvl) => logFilter === 'all' || (levelOrder[lvl] ?? 0) >= (levelOrder[logFilter] ?? 0);
-
-  const append = (entry) => {
-    if (!passesFilter(entry.level)) return;
-    const line = document.createElement('div');
-    line.className = `log-line ${entry.level}`;
-    line.innerHTML = `<span class="lvl">${entry.level.toUpperCase()}</span><span class="ts">${fmtTime(entry.time)}</span><span class="msg">${entry.msg.replace(/</g, '&lt;')}${entry.extra ? ` <span style="color:var(--brown-500)">${JSON.stringify(entry.extra).replace(/</g, '&lt;').slice(0, 200)}</span>` : ''}</span>`;
-    viewer.appendChild(line);
-    if (autoscroll.checked) viewer.scrollTop = viewer.scrollHeight;
-    while (viewer.children.length > 500) viewer.removeChild(viewer.firstChild);
-  };
-
-  filter.value = logFilter;
-  filter.addEventListener('change', () => { logFilter = filter.value; viewer.innerHTML = ''; if (logStream) restartStream(); });
-  clearBtn.addEventListener('click', () => (viewer.innerHTML = ''));
-
-  const restartStream = () => {
-    if (logStream) logStream.close();
-    logStream = new EventSource(`${API}/logs/stream`);
-    logStream.onmessage = (ev) => {
-      try { append(JSON.parse(ev.data)); } catch { /* ignore */ }
-    };
-    logStream.onerror = () => {
-      toast('Log stream terputus, mencoba reconnect...', 'err');
-    };
-  };
-  restartStream();
-}
-
-function renderSettings(root) {
-  const tbody = root.querySelector('#settingsTable tbody');
-  tbody.innerHTML = '';
-  const env = state.config?.env ?? {};
-  for (const [key, value] of Object.entries(env)) {
-    const tr = document.createElement('tr');
-    const displayed = value === null || value === '' ? '(kosong)' : String(value);
-    tr.innerHTML = `<td><code>${key}</code></td><td><code>${displayed}</code></td>`;
-    tbody.appendChild(tr);
-  }
-}
-
 function renderApi() { /* static content */ }
 
 /* ===== Init ===== */
 
-window.addEventListener('hashchange', renderCurrentRoute);
+window.addEventListener('popstate', renderCurrentRoute);
 document.addEventListener('click', (e) => {
-  const link = e.target.closest('.menu a');
-  if (link) return; // hashchange will handle it
+  const link = e.target.closest('[data-route]');
+  if (link) {
+    e.preventDefault();
+    const name = link.dataset.route;
+    if (name) navigate(name);
+    return;
+  }
+  const anchor = e.target.closest('a[href]');
+  if (anchor && anchor.origin === location.origin && !anchor.hasAttribute('target')) {
+    const routeAnchor = anchor.closest('[data-route]');
+    if (!routeAnchor) {
+      e.preventDefault();
+      history.pushState(null, '', anchor.pathname);
+      renderCurrentRoute();
+    }
+  }
 });
 
-$('#btnReload').addEventListener('click', () => refreshData());
-$('#btnBack').addEventListener('click', () => history.back());
-$('#btnCopyUrl').addEventListener('click', async () => {
-  await navigator.clipboard.writeText(location.origin);
-  toast('URL disalin', 'ok');
+$('#btnLogout').addEventListener('click', () => {
+  location.href = '/auth/logout';
 });
+
+const checkAuth = async () => {
+  try {
+    const res = await fetch('/auth/me');
+    const data = await res.json();
+    if ('user' in data) {
+      return { configured: true, user: data.user };
+    }
+  } catch { /* auth not configured (404) */ }
+  return { configured: false, user: null };
+};
 
 const boot = async () => {
+  const { configured, user } = await checkAuth();
+
+  if (configured && !user) {
+    location.href = '/login';
+    return;
+  }
+
+  if (user) {
+    $('#userCard').style.display = '';
+    $('#userName').textContent = user.name || user.email || user.id;
+    const avatarEl = $('#userAvatar');
+    const initialsEl = $('#userInitials');
+    if (user.avatarUrl) {
+      avatarEl.src = user.avatarUrl;
+      avatarEl.alt = user.name || '';
+      avatarEl.style.display = '';
+      initialsEl.style.display = 'none';
+    } else {
+      initialsEl.textContent = (user.name || user.email || 'U').slice(0, 2).toUpperCase();
+    }
+  } else {
+    $('#userCard').style.display = 'none';
+  }
+
   await loadConfig();
   await refreshData();
-  if (!location.hash) location.hash = '#/overview';
-  else renderCurrentRoute();
-  setInterval(() => {
-    if (getRoute() !== 'logs') refreshData();
-  }, 5000);
+  const name = getRoute();
+  if (!routes[name]) {
+    history.replaceState(null, '', '/');
+  }
+  renderCurrentRoute();
+  const poll = () => {
+    const needsFastPoll = state.status && !state.status.ready && state.status.state === 'qr_pending';
+    const interval = needsFastPoll ? 2000 : 5000;
+    setTimeout(async () => {
+      if (getRoute() !== 'logs') await refreshData();
+      poll();
+    }, interval);
+  };
+  poll();
 };
 
 boot();

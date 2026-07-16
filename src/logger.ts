@@ -35,7 +35,17 @@ export const createLogger = (level = 'info') => pino({
   level,
   timestamp: pino.stdTimeFunctions.isoTime,
   redact: {
-    paths: ['req.headers.authorization', 'req.headers.x-api-key', 'apiKey'],
+    paths: [
+      'req.headers.authorization',
+      'req.headers.cookie',
+      'req.headers.set-cookie',
+      'req.headers.x-api-key',
+      'res.headers.set-cookie',
+      'apiKey',
+      'token',
+      'secret',
+      'password',
+    ],
     censor: '[REDACTED]',
   },
 }, multistream([

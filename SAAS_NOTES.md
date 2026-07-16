@@ -7,12 +7,20 @@ Gateway WhatsApp multi-tenant. Satu service, banyak klien. Tenant A pakai untuk 
 
 ## STATUS SEKARANG (Current State)
 
-- Satu tenant (mono-tenant)
-- Bot logic hardcoded untuk absensi (groq prompt, attendance-client, excel-export)
-- Webhook URL/token dari DB, tapi bot handler ignore webhook config
-- Satu WhatsApp account
-- Dashboard tanpa auth
-- `.env` campur config global + tenant-specific
+- ✅ Multi-tenant schema + migration (tenants, tenant_wa_accounts, tenant_config, tenant_ai_config, tenant_api_keys)
+- ✅ Tenant resolver (dari phone number, client ID, atau API key)
+- ✅ Config loader (tenant_config + tenant_ai_config dari DB)
+- ✅ Generic bot handler (AI provider + backend client + template engine)
+- ✅ Dashboard auth (Google OAuth + session)
+- ✅ Tenant-scoped data (contacts, send_log, incoming_log, agents semua punya tenant_id)
+- ✅ User → Tenant linking (user baru daftar otomatis dapat tenant sendiri, jadi admin)
+- ✅ API key management (create, list, revoke, rotate)
+- ✅ Production gateway (routing AI, webhook tenant, guardrail, retry, memory percakapan)
+- ✅ Secret webhook terenkripsi dan redaksi log
+- ✅ Rate limiting dan usage metering dasar per tenant
+- ⚠️ Knowledge/discovery webhook belum selesai; masih memerlukan regression test lintas domain
+- ❌ Tenant selector lintas-organisasi di dashboard (belum ada)
+- ❌ Billing dan enforcement quota komersial (belum ada)
 
 ---
 
@@ -200,19 +208,42 @@ WhatsApp Message
 ```
 src/
 ├── tenant/
-│   ├── resolver.ts          ← resolve tenant dari request/phone
+│   ├── resolver.ts          ← resolve tenant dari request/phone/api-key
 │   ├── config-loader.ts     ← load tenant config dari DB
-│   └── middleware.ts         ← tenant-aware middleware
-├── bot/
-│   ├── handler.ts           ← GENERIC handler (uses tenant config)
-│   ├── ai-provider.ts       ← unified AI interface (Groq/OpenAI/custom)
-│   ├── nlu-parser.ts        ← intent parser (provider-agnostic)
-│   ├── response-engine.ts   ← template renderer (Mustache/Handlebars)
-│   ├── backend-client.ts    ← generic HTTP client ke tenant backend
-│   └── button-manager.ts    ← dynamic button builder
-├── webhook/
-│   └── forwarder.ts         ← tenant-aware webhook forwarder
-└── ... (existing files, updated for multi-tenant)
+│   ├── middleware.ts         ← tenant-aware middleware
+│   ├── types.ts              ← tenant types
+│   ├── routes.ts             ← tenant CRUD + config + API key routes
+│   ├── ai-provider.ts        ← unified AI interface (Groq/OpenAI/custom)
+│   ├── backend-client.ts     ← generic HTTP client ke tenant backend
+│   ├── bot-handler.ts        ← GENERIC handler (uses tenant config)
+│   └── template-engine.ts    ← template renderer (Mustache/Handlebars)
+├── auth/
+│   ├── passport.ts           ← Google OAuth strategy + user/tenant creation
+│   ├── routes.ts             ← auth routes (login, callback, logout)
+│   ├── middleware.ts          ← requireAuth, requireAdmin
+│   ├── session.ts            ← session store (connect-session-knex)
+│   └── index.ts              ← barrel export
+├── db/
+│   ├── migrations/           ← SQL migrations (001-007)
+│   ├── repositories/         ← tenant-scoped repositories
+│   └── index.ts              ← repository factory
+├── routes/
+│   ├── api.ts                ← public API routes
+│   └── dashboard.ts          ← dashboard routes (tenant-scoped data)
+├── whatsapp/
+│   ├── manager.ts            ← multi-client WhatsApp manager
+│   └── types.ts              ← WhatsApp gateway interface
+├── config/
+│   └── env.ts                ← environment variables schema
+├── middleware/
+│   ├── api-key.ts            ← API key validation
+│   ├── error-handler.ts      ← error handling
+│   └── validate.ts           ← request validation
+├── observability/
+│   └── buffers.ts            ← log + send history buffers
+├── logger.ts                 ← pino logger
+├── server.ts                 ← server startup
+└── app.ts                    ← Express app setup
 ```
 
 ### 8. Data Flow Example: "Toko Roti Maju"
@@ -249,33 +280,37 @@ Ketik nama roti untuk pesan.
 
 ## IMPLEMENTASI PRIORITY
 
-### Phase 1: Foundation (Minggu 1-2)
-- [ ] Multi-tenant schema + migration
-- [ ] Tenant resolver (dari phone number atau API key)
-- [ ] Update SettingsManager → TenantConfigLoader
-- [ ] Update webhook forwarder → tenant-aware
-- [ ] Dashboard auth + tenant selector
+### Phase 1: Foundation (Minggu 1-2) ✅
+- [x] Multi-tenant schema + migration
+- [x] Tenant resolver (dari phone number atau API key)
+- [x] Update SettingsManager → TenantConfigLoader
+- [x] Update webhook forwarder → tenant-aware
+- [x] Dashboard auth + tenant selector
 
-### Phase 2: Generic Bot (Minggu 3-4)
-- [ ] AI provider abstraction (Groq/OpenAI interface)
-- [ ] Template engine untuk response
-- [ ] Dynamic button builder
-- [ ] Generic backend client
-- [ ] Per-tenant keyword matching
+### Phase 2: Generic Bot (Minggu 3-4) ✅
+- [x] AI provider abstraction (Groq/OpenAI interface)
+- [x] Template engine untuk response
+- [x] Dynamic button builder
+- [x] Generic backend client
+- [x] Per-tenant keyword matching
 
-### Phase 3: Admin & API (Minggu 5)
-- [ ] Tenant CRUD API
-- [ ] Tenant config API
-- [ ] API key management
+### Phase 3: Admin & API (Minggu 5) ✅
+- [x] Tenant CRUD API
+- [x] Tenant config API
+- [x] API key management
 - [ ] Tenant-scoped rate limiting
 - [ ] Tenant-scoped logging
 
-### Phase 4: Production (Minggu 6)
-- [ ] Tenant data isolation
+### Phase 4: Production (Minggu 6) 🔄
+- [x] Tenant data isolation
+- [x] Deployment guide tanpa Docker
+- [x] Secret encryption + log redaction
+- [x] Basic rate limit + usage metering
 - [ ] Backup/restore per tenant
-- [ ] Usage metering & billing hooks
+- [ ] Billing hooks + quota enforcement
 - [ ] Health monitoring per tenant
-- [ ] Documentation
+- [x] Documentation
+- [ ] Knowledge/discovery regression suite lintas domain
 
 ---
 
