@@ -53,10 +53,10 @@ export const createApp = async (logger: Logger, options: AppOptions): Promise<Ex
       directives: {
         defaultSrc: ["'self'"],
         imgSrc: ["'self'", 'data:', 'https://api.qrserver.com', 'https://lh3.googleusercontent.com', 'https://fonts.gstatic.com'],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", 'https://static.cloudflareinsights.com'],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         fontSrc: ["'self'", 'https://fonts.gstatic.com'],
-        connectSrc: ["'self'"],
+        connectSrc: ["'self'", 'https://static.cloudflareinsights.com'],
       },
     },
   }));
@@ -74,6 +74,20 @@ export const createApp = async (logger: Logger, options: AppOptions): Promise<Ex
     legacyHeaders: false,
     message: { error: { code: 'RATE_LIMITED', message: 'Too many requests' } },
   }));
+
+  // Normalize req.secure behind Cloudflare/Flexible SSL: origin gets HTTP but the
+  // visitor connection is HTTPS, so express-session would refuse to send a Secure
+  // cookie (breaking auth). Force secure when the edge reports an HTTPS visitor.
+  app.use((req, _res, next) => {
+    const rawProto = req.headers['x-forwarded-proto'];
+    const proto = (Array.isArray(rawProto) ? rawProto[0] : rawProto)?.toLowerCase() ?? '';
+    const rawVisitor = req.headers['cf-visitor'];
+    const cfVisitor = (Array.isArray(rawVisitor) ? rawVisitor[0] : rawVisitor) ?? '';
+    if (proto === 'https' || cfVisitor.includes('"scheme":"https"')) {
+      req.headers['x-forwarded-proto'] = 'https';
+    }
+    next();
+  });
 
   // Session + Passport (before routes that need auth)
   if (options.sessionMiddleware) {

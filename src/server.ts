@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import path from 'node:path';
 import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { logger } from './logger.js';
@@ -139,6 +140,7 @@ if (tenantResolver && tenantConfigLoader) {
 const app = await createApp(logger, {
   apiKey: env.API_KEY,
   corsOrigin: env.CORS_ORIGIN,
+  publicDir: path.resolve(process.cwd(), 'public'),
   rateLimit: { windowMs: env.RATE_LIMIT_WINDOW_MS, max: env.RATE_LIMIT_MAX },
   sendRateLimit: { windowMs: env.RATE_LIMIT_WINDOW_MS, max: env.SEND_RATE_LIMIT_MAX },
   trustProxy: env.TRUST_PROXY,

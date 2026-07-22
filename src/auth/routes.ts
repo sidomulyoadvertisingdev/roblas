@@ -1,4 +1,4 @@
-import { Router, type RequestHandler, type Request, type Response } from 'express';
+import { Router, type RequestHandler, type Request, type Response, type NextFunction } from 'express';
 import passport from 'passport';
 import type { Pool } from 'mysql2/promise';
 import type { Logger } from '../logger.js';
@@ -62,15 +62,30 @@ export function createAuthRoutes(options: AuthRoutesOptions): Router {
   router.get('/login', googleAuth);
 
   // GET /auth/google/callback — OAuth callback
-  const googleCallback = passport.authenticate('google', { failureRedirect: `${frontendUrl ?? ''}/login` }) as RequestHandler;
-  router.get('/google/callback',
-    googleCallback,
-    (_req, res) => {
-      logger.info({ event: 'oauth_callback_success' }, 'Google OAuth callback successful');
-      // Redirect back to dashboard after successful login
-      res.redirect(frontendUrl ?? '/');
-    },
-  );
+  const googleCallback = (req: Request, res: Response, next: NextFunction) => {
+    passport.authenticate('google', (err: unknown, user: unknown, info: unknown) => {
+      if (err) {
+        logger.error({ event: 'oauth_callback_error', err }, 'Google OAuth callback error');
+        res.redirect(`${frontendUrl ?? ''}/login?error=auth_error`);
+        return;
+      }
+      if (!user) {
+        logger.error({ event: 'oauth_callback_failed', info, hasSession: Boolean(req.session), hasPassport: Boolean((req.session as { passport?: unknown } | undefined)?.passport) }, 'Google OAuth callback failed (no user)');
+        res.redirect(`${frontendUrl ?? ''}/login?error=oauth_failed`);
+        return;
+      }
+      req.logIn(user as Express.User, (loginErr) => {
+        if (loginErr) {
+          logger.error({ event: 'oauth_login_error', err: loginErr }, 'Google OAuth login error');
+          res.redirect(`${frontendUrl ?? ''}/login?error=login_error`);
+          return;
+        }
+        logger.info({ event: 'oauth_callback_success' }, 'Google OAuth callback successful');
+        res.redirect(frontendUrl ?? '/');
+      });
+    })(req, res, next);
+  };
+  router.get('/google/callback', googleCallback as RequestHandler);
 
   const handleLogout = (req: Request, res: Response) => {
     const userId = (req.user as { id: string } | undefined)?.id;

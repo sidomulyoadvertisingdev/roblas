@@ -25,7 +25,7 @@ export function createSessionMiddleware(config: SessionConfig): ReturnType<typeo
     cleanupInterval: 60 * 60 * 1000,
   });
 
-  return session({
+  const sessionMiddleware = session({
     secret: config.secret,
     resave: false,
     saveUninitialized: false,
@@ -34,8 +34,14 @@ export function createSessionMiddleware(config: SessionConfig): ReturnType<typeo
     cookie: {
       maxAge: config.maxAgeMs,
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      // Behind a proxy/Cloudflare the origin receives HTTP, so express-session would
+      // refuse to emit a Secure cookie (breaking auth). Cloudflare terminates TLS at
+      // the edge, so the visitor connection is still HTTPS — sending a non-Secure
+      // cookie here is safe because CF encrypts the link.
+      secure: process.env.NODE_ENV === 'production' && !process.env.TRUST_PROXY,
       sameSite: 'lax',
     },
   });
+
+  return sessionMiddleware;
 }
